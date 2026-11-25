@@ -1,15 +1,25 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import leadgenAdmin from "../src/admin/leadgen/router";
 import { leadgenBundleKey } from "../src/cache/cache-keys";
 import { D1Timing, sessionReadDb } from "../src/db/read-session";
+import { gatewayFetch } from "../src/edge/gateway";
+import { PublicPage } from "../src/edge/public-page";
+import type { PublicPageProps } from "../src/edge/types";
 import type { Env } from "../src/env";
-import type { ConfigTokenTuple, FunnelAttempt } from "../src/public/leadgen/attempt";
+import { readLiveAttemptConfig, type ConfigTokenTuple, type FunnelAttempt } from "../src/public/leadgen/attempt";
 import leadgenRouter from "../src/public/leadgen/runtime-routes";
 import {
   attachOffer, buildLeadgenEnv, carrierBody, createLeadgenDb, ctxCapture, d1FromSqlite,
   loadDatabaseSync, makeKvStub, seedAuction, seedAuctionOffer, settle, stubLeadgenFetch, type SqliteDb,
 } from "./helpers/leadgen-analytics-harness";
+
+vi.mock("cloudflare:workers", () => ({
+  WorkerEntrypoint: class {
+    constructor(readonly ctx: ExecutionContext, readonly env: Env) {}
+  },
+}));
 
 const origin = "https://one.example.com";
 const site = "site-1";
@@ -140,6 +150,60 @@ async function configHash() {
   expect(res.status).toBe(200);
   return (await res.json() as { section_order_hash: string }).section_order_hash;
 }
+
+it.each([
+  { name: "site bookmark", bookmark: "write-001", constraint: "write-001", replicaBatches: 1 },
+  { name: "missing bookmark", bookmark: undefined, constraint: undefined, replicaBatches: 0 },
+  { name: "malformed bookmark", bookmark: "bad,bookmark", constraint: "first-primary", replicaBatches: 0 },
+])("selects the binding reader's connection for a $name", async ({ bookmark, constraint, replicaBatches }) => {
+  const replica = d1FromSqlite(sql);
+  replica.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(stmt => stmt.all<T>()));
+  vi.spyOn(replica, "prepare");
+  vi.spyOn(replica, "batch");
+  const openSession = vi.fn((requested?: string) => {
+    const connection = requested === "first-primary" ? primary : replica;
+    return { prepare: connection.prepare, batch: connection.batch, getBookmark: () => null };
+  });
+  primary.withSession = openSession;
+  const live = await readLiveAttemptConfig(primary, site, variant, bookmark);
+
+  expect(openSession.mock.calls).toEqual(constraint ? [[constraint]] : []);
+  expect(replica.prepare).toHaveBeenCalledTimes(3 * replicaBatches);
+  expect(replica.batch).toHaveBeenCalledTimes(replicaBatches);
+  expect(primary.batch).toHaveBeenCalledTimes(1 - replicaBatches);
+  expect(live?.binding).toMatchObject({ auction_config_version: "1", answer_mapping_hash: sha('["11","0"]') });
+});
+
+it("forwards the bookmark recorded by an admin auction edit and mints its new version on the next start", async () => {
+  for (const file of ["0032_listicles_core.sql", "0072_sites_write_bookmark.sql"]) {
+    (sql.exec as (query: string) => void)(readFileSync(new URL("../migrations/" + file, import.meta.url), "utf8"));
+  }
+  sql.prepare("CREATE TABLE cache_purge_log (id INTEGER PRIMARY KEY, site_id TEXT, action TEXT, status TEXT, dry_run INTEGER, payload TEXT)").run();
+  sql.prepare("UPDATE sites SET write_bookmark = ? WHERE id = ?").run("write-001", site);
+  primary.withSession = () => ({ prepare: primary.prepare, batch: primary.batch, getBookmark: () => "write-002" });
+  const purgeTags = vi.fn(async (_tags: string[]) => ({ success: true, errors: [] }));
+  const entrypoint = Object.assign(({ props }: { props: PublicPageProps }) => new PublicPage({ ...capture.ctx, props }, env), { purgeTags });
+  Object.assign(capture.ctx, { exports: { PublicPage: entrypoint } });
+  const route = vi.fn(leadgenRouter.fetch);
+  async function visit() {
+    const response = await gatewayFetch(new Request(attemptUrl, { headers }), env, capture.ctx, route);
+    expect(response.status).toBe(200);
+    return payload(await response.json() as Start);
+  }
+  const old = await visit();
+  expect(old.auction_config_version).toBe("1");
+  await settle(capture.promises);
+  const edit = await leadgenAdmin.request("/api/admin/leadgen/auctions/1", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ carrier_normalization_version: 2 }),
+  }, env, capture.ctx);
+  expect(edit.status).toBe(200);
+  expect(purgeTags).toHaveBeenCalledExactlyOnceWith(expect.arrayContaining(["snap:" + site]));
+  expect(sql.prepare("SELECT write_bookmark FROM sites WHERE id = ?").get(site)).toEqual({ write_bookmark: "write-002" });
+
+  expect(await visit()).toEqual({ ...old, auction_config_version: "2" });
+  expect(route.mock.calls.map(([request]) => request.headers.get("x-cms-bookmark"))).toEqual(["write-001", "write-002"]);
+});
 
 it.each(["auction", "map", "both"] as const)("accepts a warm start after a direct %s edit, and rejects the old binding", async edit => {
   const previous = await start();

@@ -15,7 +15,11 @@ const redirectRead = expect.stringContaining("FROM redirects");
 const versionRead = expect.stringContaining("FROM listicle_articles a");
 const shellReads = ["FROM listicle_pages", "FROM listicle_sections", "FROM listicle_offers", "FROM site_settings"]
   .map((table) => expect.stringContaining(table));
-const innerRounds = [redirectRead, expect.arrayContaining([versionRead, ...shellReads])];
+const innerRounds = [expect.arrayContaining([
+  redirectRead, versionRead, ...shellReads,
+  expect.stringContaining("FROM listicle_page_section_candidates c"),
+  expect.stringContaining("JOIN media m"),
+])];
 
 function seed(db: SqliteDb): void {
   addSite(db, site, "Guides", "home");
@@ -120,7 +124,7 @@ describe("cold listicle query rounds and response bytes", () => {
     vi.useRealTimers();
   });
 
-  async function visit(inner: boolean, versionId = "ver_A") {
+  async function visit(inner: boolean, versionId = "ver_A", expectedStatus = 200) {
     const { db, rounds } = countedDb(sqlite);
     const { kv } = makeKvStub();
     Object.assign(kv, { async getWithMetadata() { return { value: null, metadata: null }; } });
@@ -135,9 +139,14 @@ describe("cold listicle query rounds and response bytes", () => {
       }));
     }
     const response = await publicRouter.request(url, { headers }, env);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(expectedStatus);
     const bytes = Buffer.from(await response.arrayBuffer());
     return { response, html: bytes.toString("utf8"), digest: createHash("sha256").update(bytes).digest("hex"), rounds };
+  }
+
+  function addRedirect(siteId: string | null, status: number, active = 1) {
+    sqlite.prepare(`INSERT INTO redirects (site_id, source_path, destination_path, status_code, is_active)
+      VALUES (?, '/guide', '/moved-guide', ?, ?)`).run(siteId, status, active);
   }
 
   it.each([
@@ -154,6 +163,48 @@ describe("cold listicle query rounds and response bytes", () => {
     expect(response.headers.getSetCookie().length).toBe(inner ? 0 : 2);
     expect(digest).toBe(expectedDigest);
     expect(rounds).toEqual(inner ? innerRounds : [hostRead, redirectRead, versionRead, expect.arrayContaining(shellReads)]);
+  });
+
+  it.each([
+    { scope: "tenant", siteId: site, status: 302 },
+    { scope: "global", siteId: null, status: 301 },
+  ])("returns the $scope $status redirect over the selected shell in one D1 batch", async ({ siteId, status }) => {
+    addRedirect(siteId, status);
+    const { response, html, rounds } = await visit(true, "ver_A", status);
+    expect(rounds).toEqual(innerRounds);
+    expect(response.headers.get("Location")).toBe("/moved-guide");
+    expect(response.headers.get("ETag")).toBeNull();
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(html).toBe("");
+  });
+
+  it.each([
+    { scope: "another tenant's", siteId: "other", active: 1 },
+    { scope: "an inactive", siteId: site, active: 0 },
+  ])("ignores $scope redirect in the selected shell batch", async ({ siteId, active }) => {
+    addSite(sqlite, "other", "Other", "home");
+    addRedirect(siteId, 302, active);
+    const { digest, rounds } = await visit(true);
+    expect(digest).toBe(innerDigest);
+    expect(rounds).toEqual(innerRounds);
+  });
+
+  it("retries the redirect first when a shell statement fails", async () => {
+    addRedirect(site, 302);
+    sqlite.prepare("ALTER TABLE listicle_pages RENAME TO unavailable_pages").run();
+    const { response, html, rounds } = await visit(true, "ver_A", 302);
+    expect(rounds).toEqual([...innerRounds, redirectRead]);
+    expect(response.headers.get("Location")).toBe("/moved-guide");
+    expect(html).toBe("");
+  });
+
+  it("falls through to the canonical article when the selected listicle is unpublished", async () => {
+    sqlite.prepare("UPDATE listicle_articles SET status = 'draft' WHERE id = 1").run();
+    sqlite.prepare(`INSERT INTO articles (site_id, slug, title, content_json, status)
+      VALUES (?, 'guide', 'Guide article', '{}', 'published')`).run(site);
+    const { response, rounds } = await visit(true, "ver_A", 301);
+    expect(response.headers.get("Location")).toBe("/article/guide");
+    expect(rounds).toEqual([...innerRounds, expect.stringContaining("FROM pages"), expect.stringContaining("FROM articles")]);
   });
 
   it.each([

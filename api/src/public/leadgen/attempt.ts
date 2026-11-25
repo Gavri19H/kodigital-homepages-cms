@@ -52,6 +52,7 @@
 // dev token whose tuple matches is accepted, and a signed token is rejected
 // (nothing to verify against). Production (secret present) is always signed.
 
+import { renderReadDb } from "../../db/read-session";
 import type { Env } from "../../env";
 import { readEnvSecret } from "../../env";
 import { ulid } from "../../leadgen/ids";
@@ -367,9 +368,12 @@ interface AttemptVariantRow {
   default_funnel_id: number | null;
 }
 
-// Read only the live binding material and routing inputs. All three SELECTs
-// see one primary transaction, including the variant's current auction link.
-export async function readLiveAttemptConfig(db: D1Database, siteId: string, variantId: string) {
+// All three SELECTs share a transaction. The site's write bookmark allows
+// a replica containing the published change to serve the whole binding.
+export async function readLiveAttemptConfig(
+  primary: D1Database, siteId: string, variantId: string, bookmark?: string | null,
+) {
+  const db = bookmark ? renderReadDb(primary, bookmark) : primary;
   const [variants, sections, rules] = await db.batch([
     db.prepare(SERVED_ATTEMPT_VARIANT + `
       SELECT served.*, a.carrier_normalization_version AS auction_version
@@ -424,7 +428,7 @@ export function isSignedToken(token: string): boolean {
 }
 
 // §8.3/§24c: mint `{ funnel_attempt_id, signed_config_token }` for a resolved
-// funnel. A start supplies the primary batch's binding. Checkpoint reissues
+// funnel. A start supplies the live batch's binding. Checkpoint reissues
 // and the fallback start resolve the funnel and its binding extras live.
 export async function mintFunnelAttempt(
   env: Env,

@@ -87,6 +87,7 @@ import {
 } from "./render-pages";
 import { renderErrorPage, type ErrorPageOptions } from "./render-error";
 import {
+  loadSelectedListicle,
   tryServePublishedListicle,
   serveListicleCandidate,
 } from "./listicle/serve";
@@ -825,15 +826,21 @@ router.get("/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const siteContext = c.get("siteContext");
-  // On an ordinary inner miss D1 can fetch the three candidates in one
-  // request. A selected listicle needs only the redirect gate before its own
-  // loader. If the batch fails, resolve each gate in the original order.
-  const candidates = c.env.EDGE_INNER === "1" && !c.req.header("x-cms-variant")?.startsWith("lst:")
+  // Include the redirect in whichever batch this inner miss needs. A failed
+  // batch falls through to the original redirect, listicle, page and article gates.
+  const inner = c.env.EDGE_INNER === "1";
+  const variant = c.req.header("x-cms-variant");
+  const selectedId = inner && variant?.startsWith("lst:") ? variant.slice(4) : undefined;
+  const selected = selectedId !== undefined
+    ? await loadSelectedListicle(c.env.DB, siteContext.siteId, slug, selectedId).catch(() => undefined)
+    : undefined;
+  const candidates = inner && selectedId === undefined
     ? await fetchBareSlugCandidates(c.env.DB, slug, siteContext.siteId).catch(() => undefined)
     : undefined;
-  const redirect = candidates === undefined
+  const batch = selected ?? candidates;
+  const redirect = batch === undefined
     ? await checkRedirect(c.env.DB, `/${slug}`, siteContext.siteId)
-    : candidates.redirect;
+    : batch.redirect;
   if (redirect) {
     return c.redirect(
       redirect.destination_path,
@@ -849,7 +856,7 @@ router.get("/:slug", async (c) => {
   const context = candidates && (candidates.page || candidates.article?.status !== "published")
     ? preloadLayout(c)
     : undefined;
-  const listicle = await tryServePublishedListicle(c);
+  const listicle = await tryServePublishedListicle(c, selected);
   if (listicle) return listicle;
   const page = await servePage(c, slug, candidates?.page, context);
   if (page) return page;

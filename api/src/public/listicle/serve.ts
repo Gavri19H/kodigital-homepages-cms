@@ -17,6 +17,7 @@ import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
+import type { RedirectRow } from "../queries";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { listicleKey, listicleCandidateKey } from "../../cache/cache-keys";
 import { publicHtmlCacheHeaders } from "../../cache/cache-control";
@@ -400,32 +401,34 @@ async function serveListicleShell(
   return new Response(html, { status: 200, headers: publicHtmlCacheHeaders({ etag }) });
 }
 
+export async function loadSelectedListicle(
+  db: D1Database, siteId: string, slug: string, publicId: string,
+) {
+  const [redirect, published, ...shell] = await db.batch([
+    // Same tenant-first, active redirect as checkRedirect in ../queries.
+    db.prepare(`SELECT destination_path, status_code FROM redirects
+      WHERE source_path = ? AND is_active = 1 AND (site_id = ? OR site_id IS NULL)
+      ORDER BY site_id IS NULL LIMIT 1`).bind("/" + slug, siteId),
+    publishedVersionsStatement(db, siteId, slug),
+    ...shellStatements(db, siteId, { slug, publicId }),
+  ]) as [D1Result<RedirectRow>, D1Result<PublishedVersionRow>, ...ShellRows];
+  return { redirect: redirect.results[0] ?? null, versions: published.results, shell };
+}
+
 // Returns null when this slug is NOT a published listicle → the router's
 // /:slug catch-all continues with its normal page/article/404 behavior
 // (draft/scheduled/archived listicles fall through too — §7.2).
-export async function tryServePublishedListicle(c: PublicContext): Promise<Response | null> {
+export async function tryServePublishedListicle(
+  c: PublicContext,
+  preload?: { versions: PublishedVersionRow[]; shell: ShellRows },
+): Promise<Response | null> {
   const slug = c.req.param("slug") ?? "";
   if (slug === "") return null;
   const siteContext = c.get("siteContext");
   const db = c.env.DB;
   const variant = c.req.header("x-cms-variant");
-  const lookup = publishedVersionsStatement(db, siteContext.siteId, slug);
-  let versions: PublishedVersionRow[] | undefined;
-  let preload: ShellRows | undefined;
-  if (c.env.EDGE_INNER === "1" && variant?.startsWith("lst:")) {
-    // Round 1 was the bare-slug redirect check. On a miss, round 2 validates
-    // the gateway's selection and fetches the shell for that same version.
-    try {
-      const [published, ...shell] = await db.batch([
-        lookup, ...shellStatements(db, siteContext.siteId, { slug, publicId: variant.slice(4) }),
-      ]) as [D1Result<PublishedVersionRow>, ...ShellRows];
-      versions = published.results;
-      preload = shell;
-    } catch {
-      // Retry through the existing scoped selection and cache path below.
-    }
-  }
-  versions ??= (await lookup.all<PublishedVersionRow>()).results;
+  const versions = preload?.versions ??
+    (await publishedVersionsStatement(db, siteContext.siteId, slug).all<PublishedVersionRow>()).results;
   const first = versions[0];
   if (first === undefined) return null; // No published article with an active version.
   const article = { public_id: first.article_public_id, slug, article_name: first.article_name };
@@ -437,7 +440,7 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
     const selected = versions.find((version) => version.public_id === versionPublicId);
     if (selected !== undefined) {
       const etag = await listicleEtag(siteContext.siteId, article.slug, selected);
-      return serveListicleShell(c, article, selected, etag, preload);
+      return serveListicleShell(c, article, selected, etag, preload?.shell);
     }
   }
 
