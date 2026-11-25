@@ -76,6 +76,8 @@ const fixedPages = new Set([
 const otherAppHeads = new Set(["newsletter", "lc", "lst-cand", "v"]);
 const leadgenRuntimeHeads = new Set(["attempt", "ck", "auction", "track", "lc", "pb", "runtime", "config", "px"]);
 const edgeMissStatuses = new Set(["MISS", "EXPIRED", "DYNAMIC", "BYPASS", "DIRECT"]);
+const edgeMissTiming = 'edge;desc="MISS"';
+const htmlContentType = /^text\/html(?:\s*;|$)/i;
 // The loopback routes by Host. Forwarding, method and version overrides can also
 // partition Workers Cache entries for an otherwise identical GET.
 const innerHeaderExclusions = [
@@ -334,7 +336,7 @@ async function serveCachedPage(
   if (needsLiveFallback(inner)) return null;
 
   let response = inner;
-  const isHtml = /^text\/html(?:\s*;|$)/i.test(inner.headers.get("Content-Type") ?? "");
+  const isHtml = htmlContentType.test(inner.headers.get("Content-Type") ?? "");
   const publicHtml = inner.status === 200 && !listicle && !leadgen && isHtml &&
     inner.headers.get("Cache-Control")?.startsWith("public,");
   let etag = inner.headers.get("ETag");
@@ -387,7 +389,7 @@ async function serveCachedPage(
   const edgeStatus = direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none";
   page.headers.set("x-edge-cache", edgeStatus);
   if (isHtml && (edgeStatus === "HIT" || edgeMissStatuses.has(edgeStatus))) {
-    const entry = edgeStatus === "HIT" ? 'edge;desc="HIT"' : 'edge;desc="MISS"';
+    const entry = edgeStatus === "HIT" ? 'edge;desc="HIT"' : edgeMissTiming;
     if (timing) timing.inner += ", " + entry;
     else page.headers.set("Server-Timing", entry);
   }
@@ -402,7 +404,7 @@ export async function gatewayFetch(
   if (path !== "/__edge/tick" && path !== "/v/vitals") request = perfstageRequest(request, env);
   const response = await dispatchGatewayRequest(request, env, ctx, honoFetch, path);
   if (request.method === "GET" && response.status === 200 &&
-      /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
+      htmlContentType.test(response.headers.get("Content-Type") ?? "")) {
     await seedStaticAssets(new URL(request.url).origin, env);
   }
   if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return response;
@@ -488,6 +490,15 @@ async function dispatchGatewayRequest(
   } catch {
     // Snapshot, binding, and rendering failures all use the original visitor URL and method.
   }
-  const live = honoFetch(request, env, ctx);
-  return timing ? withGatewayTiming(await live, timing, true) : live;
+  const live = await honoFetch(request, env, ctx);
+  const publicHtml = live.status === 200 && htmlContentType.test(live.headers.get("Content-Type") ?? "") &&
+    !isAdminHost(new URL(request.url).hostname, env);
+  if (timing) {
+    if (publicHtml) timing.inner += ", " + edgeMissTiming;
+    return withGatewayTiming(live, timing, true);
+  }
+  if (!publicHtml) return live;
+  const page = new Response(live.body, live);
+  page.headers.set("Server-Timing", edgeMissTiming);
+  return page;
 }

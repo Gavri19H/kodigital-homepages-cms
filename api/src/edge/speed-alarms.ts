@@ -189,8 +189,10 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
   if (!checks.length) return;
   const states = await env.CACHE.get(checks.map(check => check.key), "text");
   for (const { reading, target, key } of checks) {
-    const [previous, previousHour, gap] = (states.get(key) ?? "").split(" ");
+    const [stored, previousHour, marker] = (states.get(key) ?? "").split(" ");
     if (Number(previousHour) >= end) continue;
+    // Older "alarm <hour> gap" records last notified Slack of the data gap.
+    const previous = marker === "gap" ? "nodata" : stored;
     const edge = reading.metric === "HIT";
     let state: "alarm" | "healthy" | "nodata";
     let headline: string;
@@ -209,15 +211,14 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
       const metric = edge ? "edge HIT share" : `p75 ${reading.metric}`;
       detail = `${metric} ${displayNumber(reading.value, target)}${unit} · target ${edge ? "≥" : "≤"} ${target}${unit} · ${reading.samples} samples`;
     }
+    const resuming = previous === "nodata" && state === "alarm";
+    if (resuming) headline += " · data resumed";
     const text = [headline, siteLabel(site), reading.page_type, detail, workerLabel(env)].join(" · ");
-    // A stored nodata state means the gap was delivered. Carry that fact through
-    // later alarms in this episode until a recovery is delivered.
-    const gapReported = previous === "nodata" || gap === "gap";
-    const silent = gapReported && state !== "healthy";
-    if (silent || await deliver(env, text)) {
+    const alreadyResumed = marker === "resumed" && state !== "healthy";
+    if (alreadyResumed || await deliver(env, text)) {
       try {
-        const marker = state === "alarm" && gapReported ? " gap" : "";
-        await env.CACHE.put(key, `${state} ${end}${marker}`);
+        const suffix = resuming || alreadyResumed ? " resumed" : "";
+        await env.CACHE.put(key, `${state} ${end}${suffix}`);
       } catch {
         console.error("[speed-alarms] Alarm state write failed", site.id, reading.page_type, reading.metric);
       }

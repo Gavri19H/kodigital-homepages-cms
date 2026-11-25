@@ -151,22 +151,27 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     );
   });
 
-  it("posts one DATA GAP per alarm episode and silently restores the alarm during later off-target hours", async () => {
+  it("posts one DATA GAP and one resumed ALARM per episode, then stays silent until RECOVERY", async () => {
     for (const [offset, count, lcp] of [
       [0, 20, 2800], [1, 20, 2900], [2, 19, 1400], [3, 20, 2700],
-      [4, 19, 1400], [5, 20, 1500], [6, 20, 1400], [7, 20, 2600],
+      [4, 19, 1400], [5, 20, 2750], [6, 20, 1500], [7, 20, 1400], [8, 20, 2600],
     ] as const) {
       seed(count, noon + offset * hour, { page: "quote", lcp });
     }
 
-    for (const offset of [0, 0, 1, 2, 2, 3]) await checkHour(offset);
+    for (const offset of [0, 0, 1, 2, 2]) await checkHour(offset);
     const key = "speed:v1:state:site-1:quote:LCP";
-    const firstPosts = [
+    const beforeResume = [
       expect.stringMatching(/alarm.*quote.*2800/is),
       expect.stringContaining("Speed DATA GAP · site-1.example (site-1) · quote · LCP · 19 samples (minimum 20)"),
     ];
+    expect(messages()).toEqual(beforeResume);
+    for (const offset of [3, 3]) await checkHour(offset);
+    const firstPosts = [...beforeResume,
+      `Speed ALARM · data resumed · site-1.example (site-1) · quote · p75 LCP 2700 ms · target ≤ 1500 ms · 20 samples · worker ${release}`,
+    ];
     expect(messages()).toEqual(firstPosts);
-    expect(store.get(key)).toBe(`alarm ${noon + 4 * hour} gap`);
+    expect(store.get(key)).toBe(`alarm ${noon + 4 * hour} resumed`);
     // A late observation makes hour 2 healthy. Its delayed replay must not
     // announce recovery after hour 3 already observed the sustained alarm.
     seed(1, noon + 2 * hour, { page: "quote", lcp: 1400 });
@@ -174,15 +179,35 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(messages()).toEqual(firstPosts);
     await checkHour(4);
     expect(messages()).toEqual(firstPosts);
-    expect(store.get(key)).toBe(`nodata ${noon + 5 * hour}`);
-    for (const offset of [4, 5, 5, 6]) await checkHour(offset);
-    expect(messages()).toEqual([...firstPosts, expect.stringMatching(/recover.*quote.*1500/is)]);
-    expect(store.get(key)).toBe(`healthy ${noon + 6 * hour}`);
-    for (const offset of [7, 8, 8]) await checkHour(offset);
-    expect(messages().slice(3)).toEqual([
+    expect(store.get(key)).toBe(`nodata ${noon + 5 * hour} resumed`);
+    for (const offset of [4, 5, 5]) await checkHour(offset);
+    expect(messages()).toEqual(firstPosts);
+    expect(store.get(key)).toBe(`alarm ${noon + 6 * hour} resumed`);
+    for (const offset of [6, 6, 7]) await checkHour(offset);
+    const episode = [...firstPosts, expect.stringMatching(/recover.*quote.*1500/is)];
+    expect(messages()).toEqual(episode);
+    expect(store.get(key)).toBe(`healthy ${noon + 7 * hour}`);
+    for (const offset of [8, 9, 9]) await checkHour(offset);
+    expect(messages()).toEqual([...episode,
       expect.stringMatching(/alarm.*quote.*2600/is),
       expect.stringMatching(/Speed DATA GAP.*quote.*0 samples/),
     ]);
+  });
+
+  it("retries the resumed alarm for a legacy gap record until Slack accepts it", async () => {
+    const key = "speed:v1:state:site-1:article:LCP";
+    const legacy = `alarm ${noon} gap`;
+    store.set(key, legacy);
+    seed(20, noon, { lcp: 1800 });
+    send.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    await checkHour();
+    const resumed = expect.stringMatching(/^Speed ALARM.*data resumed.*p75 LCP 1800 ms/);
+    expect(messages()).toEqual([resumed]);
+    expect(store.get(key)).toBe(legacy);
+    await checkHour();
+    await checkHour();
+    expect(messages()).toEqual([resumed, resumed]);
+    expect(store.get(key)).toBe(`alarm ${noon + hour} resumed`);
   });
 
   it("keeps sites, page types and metrics independent and applies LCP targets to every page type", async () => {

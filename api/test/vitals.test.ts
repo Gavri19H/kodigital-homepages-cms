@@ -427,8 +427,9 @@ function browser(random: number, types = ["event", "first-input", "largest-conte
   const navigation: {
     responseStart?: number;
     activationStart: number;
+    transferSize?: number;
     serverTiming?: { name: string; description: string }[];
-  } = { responseStart: 125, activationStart: 5 };
+  } = { responseStart: 125, activationStart: 5, transferSize: 1024 };
   const performance = {
     interactionCount: 50,
     getEntriesByType: (name: string) => name === "navigation" ? [navigation] : [],
@@ -482,15 +483,19 @@ it("excludes background-tab paint delays from the real-visitor timings", async (
   expect(JSON.parse(await hidden.sendBeacon.mock.calls[0]![1].text())).toEqual({ page_type: "quote", ttfb_ms: 120 });
 });
 
-it.each(["HIT", "MISS", "BYPASS"])("reads the navigation edge description %s into the sampled beacon", async description => {
+it.each([
+  ["HIT", 1, "HIT"], ["MISS", 1024, "MISS"], ["BYPASS", 1024, undefined],
+  ["HIT", 0, undefined], ["MISS", 0, undefined], ["HIT", undefined, undefined],
+] as const)("samples edge description %s with navigation transferSize %s", async (description, transferSize, edge) => {
   const { navigation, events, sendBeacon } = browser(0, []);
+  navigation.transferSize = transferSize;
   navigation.serverTiming = [{ name: "gw-snap", description: "HIT" }, { name: "edge", description }];
   events.dispatchEvent(new Event("pagehide"));
   expect(sendBeacon).toHaveBeenCalledTimes(1);
   const [url, body] = sendBeacon.mock.calls[0]!;
   expect(url).toBe(endpoint);
   expect(JSON.parse(await body.text())).toEqual({ page_type: "quote", ttfb_ms: 120, fcp_ms: 200,
-    ...(description === "BYPASS" ? {} : { edge: description }) });
+    ...(edge === undefined ? {} : { edge }) });
 });
 
 it("skips the beacon when only the edge outcome is available", () => {

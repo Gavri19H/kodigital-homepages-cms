@@ -313,6 +313,45 @@ it("shows the failed snapshot build on a live fallback and skips unrelated route
   expect(fallback).toHaveBeenCalledTimes(2);
 });
 
+it.each([
+  ["missing snapshot", false], ["inner 503", false], ["missing snapshot", true], ["inner 503", true],
+] as const)("reports a live HTML MISS after %s with perfstage=%s", async (failure, staged) => {
+  const { env, visit, fallback, calls } = cachedGateway();
+  env.APP_ENV = staged ? "staging" : "production";
+  env.PERFSTAGE = staged ? "true" : undefined;
+  if (failure === "missing snapshot") vi.spyOn(snapshots, "buildSiteSnapshot").mockResolvedValueOnce(null);
+  else vi.mocked(app.honoFetch).mockReturnValueOnce(new Response(null, { status: 503 }));
+
+  const bytes = new TextEncoder().encode(`<h1>${headline}</h1>`);
+  const live = new Response(bytes, { headers: {
+    "Content-Type": "text/html; charset=utf-8", "Server-Timing": "live;dur=4",
+    "Cache-Control": "private, no-store", "Set-Cookie": "ko_sid=original",
+  } });
+  fallback.mockReturnValueOnce(live);
+  const get = vi.spyOn(env.CACHE, "get");
+  const put = vi.spyOn(env.CACHE, "put");
+  const response = await visit();
+  expect(fallback).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(200);
+  expect(await response.bytes()).toEqual(bytes);
+  expect(live.headers.get("Server-Timing")).toBe("live;dur=4");
+  const headers = new Headers(response.headers);
+  const timing = headers.get("Server-Timing");
+  if (staged) {
+    const entries = timing?.split(", ");
+    expect(entries?.slice(0, 2)).toEqual(["live;dur=4", 'gw-snap;dur=3;desc="MISS"']);
+    expect(entries).toContain(failure === "missing snapshot" ? "gw-inner;dur=0" : "gw-inner;dur=2");
+    expect(entries?.at(-1)).toBe('edge;desc="MISS"');
+  } else {
+    expect(timing).toBe('edge;desc="MISS"');
+  }
+  headers.set("Server-Timing", "live;dur=4");
+  expect([...headers]).toEqual([...live.headers]);
+  expect(calls).toHaveLength(failure === "missing snapshot" ? 0 : 8);
+  expect(get).not.toHaveBeenCalled();
+  expect(put).not.toHaveBeenCalled();
+});
+
 it("preserves D1 results and errors when metadata or the clock is unavailable", async () => {
   const { db } = makeFakeDb();
   const native = db.prepare("SELECT ? AS value").bind(1);

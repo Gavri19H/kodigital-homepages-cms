@@ -317,6 +317,21 @@ describe("visitor-specific responses", () => {
 
 describe("Hono fallbacks and private paths", () => {
   it.each([
+    ["https://CmS.Example./article/news", "text/html", 200],
+    [origin + "/article/news", "application/json", 200],
+    [origin + "/article/news", "text/html", 404],
+  ] as const)("preserves live timings on %s serving %s with status %i", async (url, contentType, status) => {
+    const { serve, honoFetch } = harness({ snap: () => new Response(null, { status: 404 }) });
+    honoFetch.mockReturnValueOnce(new Response("live Hono", {
+      status, headers: { "Content-Type": contentType, "Server-Timing": "live;dur=4" },
+    }));
+    const response = await serve(new Request(url));
+    expect(response.headers.get("Server-Timing")).toBe("live;dur=4");
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("live Hono");
+  });
+
+  it.each([
     "/health", "/newsletter", "/lc", "/lst-cand", "/preview", "/media", "/assets", "/api", "/admin", "/static", "/v",
     "/lg/attempt", "/lg/ck", "/lg/auction", "/lg/track", "/lg/lc", "/lg/pb", "/lg/runtime", "/lg/config", "/lg/px",
     "/api/track", "/preview/x", "/media/x", "/assets/public.js", "/lc/ad", "/lst-cand/id", "/v/x",
@@ -415,8 +430,11 @@ describe("Hono fallbacks and private paths", () => {
     ["unreadable leadgen shell", () => new Response(new ReadableStream({ start(c) { c.error(new Error("body failed")); } }))],
   ] as const)("uses the original visitor request after %s", async (_name, render) => {
     const { serve, calls, honoFetch } = harness({ render });
+    honoFetch.mockReturnValueOnce(new Response("live Hono", { headers: { "Content-Type": "text/html" } }));
     const request = visit("/lg?utm_source=paid", { headers: { Cookie: "ko_sid=original" } });
-    expect(await (await serve(request)).text()).toBe("live Hono");
+    const response = await serve(request);
+    expect(await response.text()).toBe("live Hono");
+    expect(response.headers.get("Server-Timing")).toBe('edge;desc="MISS"');
     expect(calls).toHaveLength(2);
     expect(honoFetch.mock.calls[0]![0]).toBe(request);
   });

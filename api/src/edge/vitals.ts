@@ -12,9 +12,9 @@ export const VITALS_BEACON = `<script data-vitals>(()=>{
   if(Math.random()>=.2||!globalThis.navigator?.sendBeacon||!globalThis.performance)return;
   const d=document,p=performance,{min,max}=Math;
   const m={page_type:d.documentElement.dataset.pt},flush=[],times=new Map();
-  const foreground=d.visibilityState!=="hidden"||d.prerendering;
+  const visible=d.visibilityState!=="hidden"||d.prerendering;
   let sent=false,start,last,score=0,lcp,low=Infinity,high=0;
-  function observe(type,visit,opts={}){
+  function watch(type,visit,opts={}){
     try{
       if(!PerformanceObserver.supportedEntryTypes.includes(type))return;
       const o=new PerformanceObserver(list=>list.getEntries().forEach(visit));
@@ -23,8 +23,8 @@ export const VITALS_BEACON = `<script data-vitals>(()=>{
       return true;
     }catch{}
   }
-  observe("largest-contentful-paint",e=>{lcp=e.startTime});
-  if(observe("layout-shift",e=>{
+  watch("largest-contentful-paint",e=>{lcp=e.startTime});
+  if(watch("layout-shift",e=>{
     if(e.hadRecentInput)return;
     const t=e.startTime;
     if(!score||t-last>=1000||t-start>=5000){start=t;score=0}
@@ -34,7 +34,7 @@ export const VITALS_BEACON = `<script data-vitals>(()=>{
     const id=e.interactionId;
     if(id){low=min(low,id);high=max(high,id);times.set(id,max(times.get(id)||0,e.duration))}
   }
-  observe("event",track,{durationThreshold:16});observe("first-input",track);
+  watch("event",track,{durationThreshold:16});watch("first-input",track);
   function send(){
     if(sent)return;
     sent=true;flush.forEach(read=>read());
@@ -42,13 +42,13 @@ export const VITALS_BEACON = `<script data-vitals>(()=>{
     const paint=p.getEntriesByName("first-contentful-paint","paint")[0];
     function ms(key,n){if(Number.isFinite(n))m[key]=min(60000,max(0,n))}
     ms("ttfb_ms",nav?.responseStart-base);
-    if(foreground){ms("fcp_ms",paint?.startTime-base);ms("lcp_ms",lcp-base)}
+    if(visible){ms("fcp_ms",paint?.startTime-base);ms("lcp_ms",lcp-base)}
     if(times.size){
       const count=p.interactionCount||1+(high-low)/7;
       ms("inp_ms",[...times.values()].sort((a,b)=>b-a)[min(times.size-1,Math.floor(count/50))]);
     }
     if(Object.keys(m).length<2)return;
-    const edge=nav?.serverTiming?.find(t=>t.name==="edge")?.description;
+    const edge=nav?.transferSize>0&&nav.serverTiming?.find(t=>t.name==="edge")?.description;
     if(edge==="HIT"||edge==="MISS")m.edge=edge;
     navigator.sendBeacon(location.origin+"/v/vitals",new Blob([JSON.stringify(m)],{type:"application/json"}));
   }
