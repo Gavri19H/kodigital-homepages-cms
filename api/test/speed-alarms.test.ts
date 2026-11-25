@@ -123,6 +123,25 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(text).not.toContain("sample-worker-old");
   });
 
+  it.each([
+    [{ id: release, tag: "0123456789ab" }, `release 0123456789ab · worker ${release}`],
+    [{ id: release }, `worker ${release}`],
+    [{ id: release, tag: "" }, `worker ${release}`],
+    [undefined, "worker unknown"],
+  ] as const)("identifies the running version in the alarm and weekly report for metadata %j", async (metadata, label) => {
+    env.CF_VERSION_METADATA = metadata;
+    seed(20, noon, { ttfb: 950 });
+    await checkHour();
+    const nextMonday = monday + 7 * day;
+    await runSpeedAlarms(env, nextMonday);
+
+    const [alarm, report] = messages();
+    expect(alarm).toBe(`Speed ALARM · site-1.example (site-1) · article · p75 TTFB 950 ms · target ≤ 800 ms · 20 samples · ${label}`);
+    expect(report?.split("\n", 1)[0]).toBe(
+      `Weekly speed report · ${new Date(monday).toISOString()} to ${new Date(nextMonday).toISOString()} · ${label}`,
+    );
+  });
+
   it("announces a breach, a recovery and a new breach once each across repeated or sparse hours", async () => {
     for (const [offset, count, lcp] of [
       [0, 20, 2800], [1, 20, 2900], [2, 19, 2000], [3, 20, 2700],

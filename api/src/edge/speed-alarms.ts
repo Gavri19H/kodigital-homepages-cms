@@ -174,6 +174,12 @@ function siteLabel(site: Site): string {
   return site.domain ? `${site.domain} (${site.id})` : site.id;
 }
 
+function workerLabel(env: Env): string {
+  const tag = env.CF_VERSION_METADATA?.tag;
+  const worker = `worker ${env.CF_VERSION_METADATA?.id ?? "unknown"}`;
+  return typeof tag === "string" && tag.length > 0 ? `release ${tag} · ${worker}` : worker;
+}
+
 function hitSummary(hit: Reading | null): string {
   if (!hit) return "edge HIT share unavailable";
   const value = hit.samples < MIN_EDGE_SAMPLES
@@ -201,7 +207,7 @@ async function notifyChanges(env: Env, site: Site, readings: Reading[], end: num
     const text = [
       alarm ? "Speed ALARM" : "Speed RECOVERY", siteLabel(site), reading.page_type,
       `${metric} ${displayNumber(reading.value, target)}${unit}`, `target ${edge ? "≥" : "≤"} ${target}${unit}`,
-      `${reading.samples} samples`, `worker ${env.CF_VERSION_METADATA?.id ?? "unknown"}`,
+      `${reading.samples} samples`, workerLabel(env),
     ].join(" · ");
     // A rejected POST leaves the last delivered state intact for the next check.
     if (await deliver(env, text)) {
@@ -233,7 +239,7 @@ function siteTable(site: Site, hit: Reading | null, rows: Reading[] | null): str
 
 function weeklyReport(env: Env, start: number, end: number, sections: string[]): string {
   const header = [
-    `Weekly speed report · ${new Date(start).toISOString()} to ${new Date(end).toISOString()} · worker ${env.CF_VERSION_METADATA?.id ?? "unknown"}`,
+    `Weekly speed report · ${new Date(start).toISOString()} to ${new Date(end).toISOString()} · ${workerLabel(env)}`,
     `Targets · Site-wide HIT ≥ ${targets.HIT}% · p75 LCP ≤ ${targets.LCP} ms (home, article, listicle, quote), INP ≤ ${targets.INP} ms, CLS ≤ ${targets.CLS}, TTFB ≤ ${targets.TTFB} ms`,
     `! marks a missed target. — means fewer than ${MIN_VITAL_SAMPLES} samples. HIT share requires ${MIN_EDGE_SAMPLES} samples.`,
   ].join("\n");

@@ -8,6 +8,7 @@ mkdir -p "$tmp/bin" "$perf"
 cp "$src/rollout.sh" "$src/edge-probe.sh" "$perf/"
 printf '%s\n' https://a.example/ https://b.example/ > "$perf/urls.txt"
 export PATH="$tmp/bin:$PATH" PYTHONPATH="$tmp" ROLLOUT_POLL_SECONDS=.02 ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=5
+export GITHUB_SHA=0123456789abcdef0123456789abcdef01234567
 
 # Keep real time while the first slow fill is pending. Skip long waits in the other checks.
 cat > "$tmp/sitecustomize.py" <<'PY'
@@ -24,7 +25,14 @@ cat > "$tmp/bin/npx" <<'SH'
 set -eu
 case "$1 $2 $3" in
   "wrangler deployments list") echo '[{"versions":[{"version_id":"old","percentage":100}]}]' ;;
-  "wrangler versions upload") echo '{"type":"version-upload","version_id":"new"}' > "$WRANGLER_OUTPUT_FILE_PATH" ;;
+  "wrangler versions upload")
+    while (( $# )) && [[ $1 != --tag ]]; do shift; done
+    tag=${2:-}
+    [[ $tag =~ ^[[:xdigit:]]{12}$ && $tag == "${GITHUB_SHA:0:12}" ]] || {
+      echo 'Expected upload --tag with the first 12 hex characters of GITHUB_SHA' >&2
+      exit 1
+    }
+    echo '{"type":"version-upload","version_id":"new"}' > "$WRANGLER_OUTPUT_FILE_PATH" ;;
   "wrangler versions deploy")
     [[ $4 != new@10% || $5 == old@90% ]] || exit 1
     echo "$4" >> "$STATE/deploys" ;;
@@ -141,6 +149,7 @@ rolled_back() {
 }
 
 run_case delayed || exit 1
+echo 'PASS upload used the first 12 hex characters of GITHUB_SHA as its version tag'
 [[ $(cat "$STATE/deploys") == $'new@10%\nnew@100%' ]] || exit 1
 grep -q '^Minute 30: new-version 5xx=0, parity mismatches=0$' "$STATE/log" || exit 1
 grep -q '^STAGE warm ok ' "$STATE/log" || exit 1
