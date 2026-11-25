@@ -912,9 +912,10 @@ function brandLogoItems(cfg: FrameBrandLogosConfig) {
 function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesign, dimensions?: LogoDimensions): string {
   const logos = brandLogoItems(cfg);
   if (logos.length === 0) return "";
+  const lazy = cfg.slot !== "above_header" && cfg.slot !== "above_section";
   const strip = renderLogoStrip({
     ...frameNode("LogoStrip", "frame_brand_logos", { logos }), logoDimensions: dimensions,
-  }, design, true);
+  }, design, true, lazy);
   const gating = pageTargetGating(cfg.pages);
   const classes = `lg-frame-brand-logos lg-frame-brand-logos--${cfg.layout}` + alignClass(cfg.align);
   return region("brand_logos", classes, strip, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);

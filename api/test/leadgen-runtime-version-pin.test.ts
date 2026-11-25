@@ -45,6 +45,7 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
+// v16 re-pinned 2026-11-25: returning visitors restore before first paint; previous v16 digest ad342193…
 // v16 (2026-11-25): The quote form accepts input before /lg/attempt resolves, and the shell starts the attempt early. Previous pin: 9be4cecf…
 // SHA-256 of the served JavaScript at template v16. The engine consumes
 // the shell's early /lg/attempt request. The v15 digest was 94a1b5cd…
@@ -68,7 +69,7 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "ad342193fb8fc8acbbedd4d917f61ff760fc474a8b1d8351996d0980030ac7fe";
+const RUNTIME_BUNDLE_SHA256 = "4e6e584d65dc9fe1a500f5fa040e8f1885d21f83270dcc61d7440b46406b3c48";
 const RUNTIME_BUNDLE_VERSION = 16;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {

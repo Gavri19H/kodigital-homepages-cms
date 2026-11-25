@@ -54,7 +54,7 @@ interface ImageCase {
   axis?: "width";
   // The standalone header token is 1.1rem (17.6 CSS pixels).
   transformSize?: number;
-  loading: "eager" | "lazy";
+  loading: "eager" | "lazy" | null;
   alt?: string;
   widths?: number[];
   sizes?: string;
@@ -93,6 +93,22 @@ const cases: ImageCase[] = [
     blocks: [{ type: "logo", logo_source: "manual", logo_media_id: ref, logo_alt: alt }] } }),
     box: [96, 32], loading: "lazy" },
 ];
+
+for (const [slot, loading] of [
+  ["above_header", null],
+  ["above_section", null],
+  ["below_section", "lazy"],
+  ["below_footer", "lazy"],
+] as const) {
+  cases.push({
+    name: `brand logos in ${slot}`,
+    render: (ref) => frame({
+      brand_logos: { enabled: true, layout: "row", slot, items: [{ media_id: ref, alt }] },
+    }),
+    box: [96, 32],
+    loading,
+  });
+}
 
 for (const [size, headerHeight, stripHeight, side] of [
   ["s", 24, 24, 96], ["m", 32, 32, 160], ["l", 44, 48, 240],

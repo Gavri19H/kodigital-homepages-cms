@@ -4800,7 +4800,12 @@ export function sectionLogoUrls(node: LeadgenComponentNode): (string | null)[] {
   return [];
 }
 
-export function renderLogoStrip(node: ShellLogoNode, design: DefaultFunnelDesign, brandLogos = false): string {
+export function renderLogoStrip(
+  node: ShellLogoNode,
+  design: DefaultFunnelDesign,
+  brandLogos = false,
+  lazy = true,
+): string {
   const baseHeight = funnelImagePixels(design.logoStrip.logoMaxHeight, 32);
   const logos = logoStripLogos(node)
     .map((logo) => {
@@ -4810,7 +4815,7 @@ export function renderLogoStrip(node: ShellLogoNode, design: DefaultFunnelDesign
       const size = brandLogos ? logo.size : undefined;
       const height = size === "s" ? 24 : size === "l" ? 48 : baseHeight;
       return `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
-        ` ${funnelImageAttrs(url, logo.alt, logoWidth(url, height, node.logoDimensions), height)} loading="lazy">`;
+        ` ${funnelImageAttrs(url, logo.alt, logoWidth(url, height, node.logoDimensions), height)}${lazy ? ' loading="lazy"' : ""}>`;
     })
     .join("");
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
