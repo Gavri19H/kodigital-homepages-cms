@@ -296,6 +296,42 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(store.get(key)).toBe(`healthy ${noon + 4 * hour}`);
   });
 
+  it("alarms on 50 live page MISS beacons from a registered host with no snapshot", async () => {
+    const hostname = "site-1.example";
+    const origin = `https://${hostname}`;
+    db.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')").run("site-1", hostname);
+    // The insert gets its timestamp from D1. Give SQLite and the Worker the same hour.
+    vi.useFakeTimers({ toFake: ["Date"], now: noon });
+    if (typeof db.function !== "function") throw new Error("SQLite clock override required");
+    db.function("unixepoch", () => Math.floor(Date.now() / 1000));
+
+    const { ctx, promises } = ctxCapture();
+    Object.assign(ctx, { exports: { PublicPage: () => ({ fetch: () => new Response(null, { status: 404 }) }) } });
+    Object.assign(env.CACHE, { getWithMetadata: async () => ({ value: null, metadata: null }) });
+    const page = await worker.fetch(new Request(origin), env, ctx);
+    expect(page.status).toBe(200);
+    const edge = page.headers.get("Server-Timing")?.match(/^edge;desc="([^"]+)"$/)?.[1];
+    expect(edge).toBe("MISS");
+
+    const body = JSON.stringify({ page_type: "home", ttfb_ms: 125, edge });
+    for (let client = 1; client <= 50; client++) {
+      const beacon = new Request(origin + "/v/vitals", {
+        method: "POST", body, headers: { "Content-Type": "application/json", "CF-Connecting-IP": `192.0.2.${client}` },
+      });
+      expect((await worker.fetch(beacon, env, ctx)).status).toBe(204);
+    }
+    await Promise.all(promises);
+    expect(db.prepare(`SELECT site_id, edge, COUNT(*) AS samples, COUNT(DISTINCT client_key) AS clients
+      FROM vitals_samples GROUP BY site_id, edge`).all())
+      .toEqual([{ site_id: "site-1", edge: "MISS", samples: 50, clients: 50 }]);
+
+    vi.setSystemTime(firstTick);
+    await scheduled(firstTick);
+    expect(messages()).toEqual([
+      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 0% · target ≥ 90% · 50 samples · worker ${release}`,
+    ]);
+  });
+
   it("uses 50 actual edge samples per site and recovers at exactly 90% HIT share", async () => {
     addSite(db, "site-2", "Second site", "home");
     seedEdge("site-1", noon, 44, 5);

@@ -10,7 +10,7 @@ import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
 import publicRouter, { acceptPrefersMarkdown } from "../public/router";
 import { normalizeHostname } from "../safety/protected-domains";
-import { isAdminHost, type SiteContext } from "../site/site-context";
+import { isAdminHost, resolveSiteByHostname, type SiteContext } from "../site/site-context";
 import { edgeBotVariant } from "./bot";
 import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gateway";
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
@@ -420,10 +420,17 @@ async function dispatchGatewayRequest(
 ): Promise<Response> {
   if (path === "/v/vitals") {
     return handleVitals(request, env, ctx, async url => {
-      const pages = ctx?.exports as PageExports | undefined;
-      if (!ctx || typeof pages?.PublicPage !== "function") return null;
-      const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0 });
-      return host?.snapshot.siteId ?? null;
+      try {
+        const pages = ctx?.exports as PageExports | undefined;
+        if (ctx && typeof pages?.PublicPage === "function") {
+          const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0 });
+          if (host) return host.snapshot.siteId;
+        }
+      } catch {
+        // A failed snapshot sends page views to the live renderer. Count their beacons too.
+      }
+      const site = await resolveSiteByHostname(env.DB, url.hostname, env);
+      return site?.site_id ?? null;
     });
   }
   if (path === "/__edge/tick") {

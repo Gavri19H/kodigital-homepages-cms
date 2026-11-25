@@ -152,6 +152,8 @@ export async function handleVitals(
   const country = request.cf?.country;
   const device = deviceFromHeaders(request.headers);
   const utcDate = new Date().toISOString().slice(0, 10);
+  // A browser-cached navigation can report zero without measuring network TTFB.
+  if (sample.ttfb_ms != null && sample.ttfb_ms <= 0) sample.ttfb_ms = null;
   const insert = sha256Hex(`${source}|${utcDate}|${siteId}`).then(hash => {
     const clientKey = hash.slice(0, 16);
     return env.DB.prepare(`INSERT INTO vitals_samples

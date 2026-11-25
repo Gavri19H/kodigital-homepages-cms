@@ -17,6 +17,7 @@ vi.mock("../src/cache/cache-stats", { spy: true });
 
 const origin = `https://${SEED_HOSTNAME}`;
 const endpoint = origin + "/v/vitals";
+const unknownEndpoint = "https://unregistered.example/v/vitals";
 const snapshot: SiteSnapshot = {
   v: 1, siteId: SEED_SITE_ID, hostname: SEED_HOSTNAME, status: "active", contentVersion: 1, settingsVersion: 1,
   writeBookmark: null, timeZone: null, language: null, builtAt: SEED_EPOCH * 1000, listicles: {}, leadgen: {},
@@ -26,6 +27,7 @@ let env: Env;
 
 beforeAll(() => {
   sqlite = createDb(); // Applies the actual migrations.
+  (sqlite.exec as (sql: string) => void)(buildSeedSql());
   const db = d1FromSqlite(sqlite);
   db.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(stmt => stmt.all<T>()));
   env = buildLeadgenEnv(db, makeKvStub().kv, {
@@ -79,7 +81,7 @@ describe("uncached vitals ingestion", () => {
 
   it.each(["HIT", "MISS"])("reads only the host snapshot and inserts the reported %s with edge-owned dimensions", async edge => {
     const { serve, calls, work, fallback } = gateway();
-    const metrics = { ttfb_ms: 0, fcp_ms: 124.5, lcp_ms: 60_000, inp_ms: 16, cls: 5 };
+    const metrics = { ttfb_ms: 0.5, fcp_ms: 124.5, lcp_ms: 60_000, inp_ms: 16, cls: 5 };
     const request = post(JSON.stringify({ page_type: "quote", edge, ...metrics,
       site_id: "different-site", country: "AU", worker_version: "other", created_at: 1, device: "tablet", client_key: "forged",
     }), { "x-cms-site-id": "header-site", "CF-IPCountry": "CA", "X-Forwarded-Host": "other.example" });
@@ -109,6 +111,21 @@ describe("uncached vitals ingestion", () => {
     }
   });
 
+  it("stores NULL for a browser-cache visit's zero TTFB and keeps its other metrics", async () => {
+    const { navigation, events, sendBeacon } = browser(0);
+    navigation.transferSize = 0;
+    navigation.responseStart = 0;
+    navigation.activationStart = 0;
+    events.dispatchEvent(new Event("pagehide"));
+    const [url, body] = sendBeacon.mock.calls[0]!;
+    expect(JSON.parse(await body.text())).toEqual({ page_type: "quote", ttfb_ms: 0, fcp_ms: 205, cls: 0 });
+
+    const { serve, work } = gateway();
+    expect((await serve(new Request(url, { method: "POST", body }))).status).toBe(204);
+    await Promise.all(work);
+    expect(rows()).toMatchObject([{ page_type: "quote", edge: null, ttfb_ms: null, fcp_ms: 205, cls: 0 }]);
+  });
+
   it("returns an uncached 429 and schedules no insert when the limiter denies the client IP", async () => {
     const limit = vi.fn().mockResolvedValue({ success: false });
     const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
@@ -121,10 +138,13 @@ describe("uncached vitals ingestion", () => {
 
   it("checks the limiter only after validating the sample and resolving the site", async () => {
     const limit = vi.fn().mockResolvedValue({ success: false });
-    const { serve } = gateway(() => new Response(null, { status: 404 }), { ...env, VITALS_RATE_LIMITER: { limit } });
+    const { serve, work } = gateway(() => new Response(null, { status: 404 }), { ...env, VITALS_RATE_LIMITER: { limit } });
     expect((await serve(post("{}"))).status).toBe(400);
-    expect((await serve(post(sampleBody))).status).toBe(404);
+    expect((await serve(new Request(unknownEndpoint, { method: "POST", body: sampleBody }))).status).toBe(404);
     expect(limit).not.toHaveBeenCalled();
+    expect((await serve(post(sampleBody, { "CF-Connecting-IP": clientIp }))).status).toBe(429);
+    expect(limit.mock.calls).toEqual([[{ key: clientIp }]]);
+    expect([work, rows()]).toEqual([[], []]);
   });
 
   it.each([null, "2001:db8:::1", "invalid-ip"])("uses the unknown limiter key for CF-Connecting-IP %j", async ip => {
@@ -307,18 +327,52 @@ describe("uncached vitals ingestion", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["unregistered", () => new Response(null, { status: 404 }), 404],
-    ["malformed", () => new Response("{"), 404],
-    ["mismatched", () => Response.json({ ...snapshot, hostname: "other.example" }), 404],
-    ["inactive", () => Response.json({ ...snapshot, status: "draft" }), 404],
-    ["unavailable", () => { throw new Error("snapshot unavailable"); }, 503],
-  ] as const)("discards a sample when the snapshot is %s", async (_name, snap, status) => {
+  const unusableSnapshots = [
+    ["missing", () => new Response(null, { status: 404 })],
+    ["malformed", () => new Response("{")],
+    ["oversized", () => Response.json({ ...snapshot, siteId: "wrong-site", language: "x".repeat(1024 * 1024) })],
+    ["mismatched", () => Response.json({ ...snapshot, siteId: "wrong-site", hostname: "other.example" })],
+    ["inactive", () => Response.json({ ...snapshot, siteId: "wrong-site", status: "draft" })],
+    ["unavailable", () => { throw new Error("snapshot unavailable"); }],
+  ] as const;
+
+  it.each(unusableSnapshots)("discards an unregistered host's sample when the snapshot is %s", async (_name, snap) => {
     const { serve, calls, work, fallback } = gateway(snap);
-    const response = await serve(post('{"page_type":"home","cls":0}'));
-    expect(response.status).toBe(status);
+    const response = await serve(new Request(unknownEndpoint, { method: "POST", body: sampleBody }));
+    expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(calls.map(c => c.props.variantKey)).toEqual(["snap"]);
+    expect([work, rows()]).toEqual([[], []]);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it.each(unusableSnapshots)("records a registered host's MISS when the snapshot is %s", async (_name, snap) => {
+    const { serve, calls, work, fallback } = gateway(snap);
+    const response = await serve(post('{"page_type":"home","edge":"MISS","cls":0}'));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(calls.map(c => c.props.variantKey)).toEqual(["snap"]);
+    expect(work).toHaveLength(1);
+    await Promise.all(work);
+    expect(rows()).toMatchObject([{ site_id: SEED_SITE_ID, page_type: "home", edge: "MISS", cls: 0 }]);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("uses the registry when the snapshot binding is absent", async () => {
+    const response = await gatewayFetch(post(sampleBody), env, undefined, honoFetch);
+    expect(response.status).toBe(204);
+    expect(rows()).toMatchObject([{ site_id: SEED_SITE_ID, cls: 0 }]);
+  });
+
+  it("returns an uncached 503 when the fallback registry lookup throws", async () => {
+    const db = d1FromSqlite(sqlite);
+    const prepare = vi.spyOn(db, "prepare").mockImplementation(() => { throw new Error("registry unavailable"); });
+    const { serve, calls, work, fallback } = gateway(() => new Response(null, { status: 404 }), { ...env, DB: db });
+    const response = await serve(post(sampleBody));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(calls.map(c => c.props.variantKey)).toEqual(["snap"]);
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining("FROM domains"));
     expect([work, rows()]).toEqual([[], []]);
     expect(fallback).not.toHaveBeenCalled();
   });
@@ -339,7 +393,6 @@ describe("uncached vitals ingestion", () => {
 
 describe("rendered vitals beacon", () => {
   beforeAll(() => {
-    (sqlite.exec as (sql: string) => void)(buildSeedSql());
     sqlite.prepare("INSERT INTO tags (site_id, slug, name) VALUES (?, 'news', 'News')").run(SEED_SITE_ID);
     sqlite.prepare(`INSERT INTO pages (site_id, slug, title, content_json, content_html, status, updated_at)
       VALUES (?, 'about-us', 'About us', '{}', '<p>About</p>', 'published', ?)`).run(SEED_SITE_ID, SEED_EPOCH);
@@ -397,10 +450,12 @@ describe("rendered vitals beacon", () => {
     expect(html).not.toContain("/v/vitals");
   });
 
-  it("fits the complete inline script, including its tags, in 2048 bytes", () => {
+  it("matches the 2048 bytes of the complete inline script at 4e9ed81d", () => {
     const bytes = Buffer.byteLength(VITALS_BEACON);
     console.log(`Vitals beacon: ${bytes} bytes including script tags`);
-    expect(bytes).toBeLessThanOrEqual(2048);
+    expect(bytes).toBe(2048);
+    expect(createHash("sha256").update(VITALS_BEACON).digest("hex"))
+      .toBe("42eb6e01be6c0d1f62bb401da3d8f2674236ff1990e25a9f6a09ca5007deb91a");
   });
 });
 
