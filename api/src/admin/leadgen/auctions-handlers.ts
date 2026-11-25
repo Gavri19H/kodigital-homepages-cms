@@ -632,13 +632,14 @@ export async function patchAuctionHandler(c: AdminContext): Promise<Response> {
     return c.json({ error: "Validation failed", fields: { backfill_source_offer_id: `offer ${value.backfill_source_offer_id} does not exist` } }, 400);
   }
 
-  await c.env.DB.prepare(
+  const bindingVersion = body["carrier_normalization_version"] === undefined ? null : value.carrier_normalization_version;
+  const update = c.env.DB.prepare(
     `UPDATE leadgen_auctions SET
        auction_name = ?, quote_id = ?, funnel_id = ?, funnel_variant_id = ?, auction_type = ?, banner_design_id = ?,
        winner_logic = ?, floor_type = ?, floor_value = ?, mixed_payout_warn = ?, multi_offer = ?, surface_static_bid_offers = ?,
        banner_slots_count = ?, max_carriers_per_offer = ?, max_total_carriers = ?, render_mode = ?, backfill = ?,
        backfill_source_offer_id = ?, backfill_trigger = ?, remove_clicked_offers = ?, removal_scope = ?, timeout_ms = ?,
-       carrier_normalization_version = ?, banner_config_json = ?, status = ?, updated_at = unixepoch()
+       carrier_normalization_version = COALESCE(?, carrier_normalization_version), banner_config_json = ?, status = ?, updated_at = unixepoch()
      WHERE id = ?`,
   )
     .bind(
@@ -646,9 +647,19 @@ export async function patchAuctionHandler(c: AdminContext): Promise<Response> {
       value.winner_logic, value.floor_type, value.floor_value, value.mixed_payout_warn, value.multi_offer, value.surface_static_bid_offers,
       value.banner_slots_count, value.max_carriers_per_offer, value.max_total_carriers, value.render_mode, value.backfill,
       value.backfill_source_offer_id, value.backfill_trigger, value.remove_clicked_offers, value.removal_scope, value.timeout_ms,
-      value.carrier_normalization_version, value.banner_config_json, value.status, row.id,
-    )
-    .run();
+      bindingVersion, value.banner_config_json, value.status, row.id,
+    );
+  if (bindingVersion === null) {
+    await update.run();
+  } else {
+    // The attempt binds the auction selected by the variant. An auction's own
+    // attribution fields can name a different quote. Compare at commit time.
+    const consumers = c.env.DB.prepare(`SELECT v.id FROM leadgen_auctions a
+      JOIN leadgen_funnel_variants v ON v.auction_id = a.id AND v.status = 'active'
+      JOIN leadgen_funnels f ON f.id = v.funnel_id AND f.status = 'active'
+      WHERE a.id = ? AND a.carrier_normalization_version != ?`).bind(row.id, bindingVersion);
+    await commitLeadgenContentChange(c, [update], consumers, "leadgen.auction.update");
+  }
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_auctions WHERE id = ? LIMIT 1").bind(row.id).first<LeadgenAuctionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);

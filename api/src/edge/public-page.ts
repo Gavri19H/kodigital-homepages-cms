@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { applyEdgeCacheHeaders, EDGE_CACHE_CONTROL } from "../cache/cache-control";
 import { D1Timing, elapsedMs, renderReadDb, timingNow } from "../db/read-session";
 import type { Env } from "../env";
+import { sha256Hex } from "../leadgen/meta-hash";
 import { perfstageEnv } from "./perfstage";
 import { buildSiteSnapshot } from "./snapshot";
 import { hostTag, mergeTags, siteTag, snapTag } from "./tags";
@@ -9,11 +10,15 @@ import type { PublicPageProps } from "./types";
 
 export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
   override async fetch(request: Request): Promise<Response> {
-    const started = timingNow();
-    const timing = new D1Timing();
+    const timing = this.env.PERFSTAGE === "true" ? new D1Timing() : undefined;
+    const started = timing ? timingNow() : 0;
     const { siteKey, variantKey } = this.ctx.props;
     const { hostname, pathname } = new URL(request.url);
     const withTiming = (response: Response): Response => {
+      if (!timing) {
+        response.headers.delete("Server-Timing");
+        return response;
+      }
       try {
         const prefix = pathname === "/__snap" ? "snap-" : "";
         const firstRegion = timing.regions.values().next().value ?? "none";
@@ -39,12 +44,20 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
             headers: { "Cache-Control": EDGE_CACHE_CONTROL.notFound, "Cache-Tag": hostTag(hostname) },
           }));
         }
-        return withTiming(Response.json(snapshot, {
+        const text = JSON.stringify(snapshot);
+        const response = new Response(text, {
           headers: {
+            "Content-Type": "application/json",
             "Cache-Control": EDGE_CACHE_CONTROL.publicPage,
             "Cache-Tag": mergeTags([siteTag(snapshot.siteId), snapTag(snapshot.siteId)]).join(","),
           },
-        }));
+        });
+        try {
+          response.headers.set("ETag", '"' + await sha256Hex(text) + '"');
+        } catch {
+          // The gateway also accepts snapshots without a memo key.
+        }
+        return withTiming(response);
       } catch {
         return withTiming(new Response(null, { status: 503, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } }));
       }

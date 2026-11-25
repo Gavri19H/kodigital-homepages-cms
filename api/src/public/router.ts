@@ -34,7 +34,7 @@ import {
   type FeedSiteInfo,
 } from "./feeds";
 import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
-import { buildArticleViewModel } from "./view-models/article";
+import { buildArticleViewModel, loadArticleRenderData } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
 import { requestIsBot } from "../edge/bot";
 import { resolveAdsTxt } from "./ads";
@@ -88,6 +88,7 @@ import {
 } from "./render-pages";
 import { renderErrorPage, type ErrorPageOptions } from "./render-error";
 import {
+  loadSelectedListicle,
   tryServePublishedListicle,
   serveListicleCandidate,
 } from "./listicle/serve";
@@ -354,20 +355,20 @@ router.get("/", async (c) => {
   }, cacheExecutionCtx(c));
 });
 
-// T2 (rescue-3): the GET /article/:slug handler passes c.env.DB into
-// renderArticleHtml so the design article shell (buildArticleViewModel +
-// renderArticle + renderLayout) is composed through the LIVE route — the
-// renderer is db-fed, not orphaned. getArticleBySlug stays as the cheap 404
-// gate (so an unknown/draft slug never enters the cache pipeline); the
-// db-fed render then runs only on a cold cache.
+// PublicPage calls this route on a cache miss. Its tenant-scoped detail read
+// checks publication in the same round as related articles and layout settings.
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
-  const row = await getArticleBySlug(c.env.DB, slug, {
-    siteId: siteContext.siteId,
-  });
-  if (!row || row.status !== "published") {
-    return publicErrorResponse(c, 404);
+  const data = c.env.EDGE_INNER === "1"
+    ? await loadArticleRenderData(c.env.DB, { slug, siteContext }).catch(() => undefined)
+    : undefined;
+  if (data === undefined) {
+    // Legacy cache hits, 304s and failed preloads use the original publication gate.
+    const row = await getArticleBySlug(c.env.DB, slug, { siteId: siteContext.siteId });
+    if (row?.status !== "published") return publicErrorResponse(c, 404);
+  } else if (data.vm === null) {
+    return notFoundWithLayout(c, data.context.catch(() => undefined));
   }
   const path = `/article/${slug}`;
   // rescue-6: serve clean markdown to agents that ask for it. Rendered fresh
@@ -375,13 +376,7 @@ router.get("/article/:slug", async (c) => {
   // markdown variant can never serve to a browser, and the HTML cache hit-rate
   // is untouched.
   if (acceptPrefersMarkdown(c.req.header("accept"))) {
-    const mdVm = await buildArticleViewModel(c.env.DB, {
-      slug,
-      siteContext: {
-        siteId: siteContext.siteId,
-        hostname: siteContext.hostname,
-      },
-    });
+    const mdVm = data?.vm ?? await buildArticleViewModel(c.env.DB, { slug, siteContext });
     if (mdVm === null) return publicErrorResponse(c, 404);
     const md = renderArticleMarkdown({
       title: mdVm.article.title,
@@ -401,7 +396,7 @@ router.get("/article/:slug", async (c) => {
   const isBot = isBotRequest(c);
   if (isBot) {
     const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
-      isBot,
+      isBot, data,
     });
     return new Response(body, {
       status: 200,
@@ -413,7 +408,7 @@ router.get("/article/:slug", async (c) => {
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderArticleHtml(c.env.DB, siteContext, slug),
+    render: () => renderArticleHtml(c.env.DB, siteContext, slug, { data }),
   }, cacheExecutionCtx(c));
 });
 
@@ -843,15 +838,21 @@ router.get("/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const siteContext = c.get("siteContext");
-  // On an ordinary inner miss D1 can fetch the three candidates in one
-  // request. A selected listicle needs only the redirect gate before its own
-  // loader. If the batch fails, resolve each gate in the original order.
-  const candidates = c.env.EDGE_INNER === "1" && !c.req.header("x-cms-variant")?.startsWith("lst:")
+  // Include the redirect in whichever batch this inner miss needs. A failed
+  // batch falls through to the original redirect, listicle, page and article gates.
+  const inner = c.env.EDGE_INNER === "1";
+  const variant = c.req.header("x-cms-variant");
+  const selectedId = inner && variant?.startsWith("lst:") ? variant.slice(4) : undefined;
+  const selected = selectedId !== undefined
+    ? await loadSelectedListicle(c.env.DB, siteContext.siteId, slug, selectedId).catch(() => undefined)
+    : undefined;
+  const candidates = inner && selectedId === undefined
     ? await fetchBareSlugCandidates(c.env.DB, slug, siteContext.siteId).catch(() => undefined)
     : undefined;
-  const redirect = candidates === undefined
+  const batch = selected ?? candidates;
+  const redirect = batch === undefined
     ? await checkRedirect(c.env.DB, `/${slug}`, siteContext.siteId)
-    : candidates.redirect;
+    : batch.redirect;
   if (redirect) {
     return c.redirect(
       redirect.destination_path,
@@ -867,7 +868,7 @@ router.get("/:slug", async (c) => {
   const context = candidates && (candidates.page || candidates.article?.status !== "published")
     ? preloadLayout(c)
     : undefined;
-  const listicle = await tryServePublishedListicle(c);
+  const listicle = await tryServePublishedListicle(c, selected);
   if (listicle) return listicle;
   const page = await servePage(c, slug, candidates?.page, context);
   if (page) return page;

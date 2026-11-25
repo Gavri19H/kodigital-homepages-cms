@@ -57,6 +57,12 @@ export class D1Timing {
   };
 }
 
+// workerd's raw() projects this reply into positional rows, dropping meta. all()
+// also drops duplicate column names, SQL column order and headers on empty results.
+interface RawResultSession {
+  _sendOrThrow(...args: unknown[]): Promise<D1Response | D1Response[]>;
+}
+
 class TimedStatement implements D1PreparedStatement {
   constructor(readonly inner: D1PreparedStatement, private readonly timing: D1Timing) {}
 
@@ -64,8 +70,16 @@ class TimedStatement implements D1PreparedStatement {
     return new TimedStatement(this.inner.bind(...values), this.timing);
   }
 
-  first<T>(column?: string): Promise<T | null> {
-    return this.timing.measure(() => column === undefined ? this.inner.first<T>() : this.inner.first<T>(column));
+  async first<T>(column?: string): Promise<T | null> {
+    // D1 first() drops the result envelope. Its row and column come from the same query as all().
+    const { results } = await this.all<Record<string, unknown>>();
+    const row = results[0];
+    if (row === undefined) return null;
+    if (column === undefined) return row as T;
+    if (row[column] === undefined) {
+      throw new Error(`D1_COLUMN_NOTFOUND: Column not found (${column})`, { cause: new Error("Column not found") });
+    }
+    return row[column] as T;
   }
 
   all<T>(): Promise<D1Result<T>> {
@@ -79,8 +93,25 @@ class TimedStatement implements D1PreparedStatement {
   raw<T>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
   raw<T>(options?: { columnNames?: false }): Promise<T[]>;
   raw<T>(options?: { columnNames: true } | { columnNames?: false }): Promise<[string[], ...T[]] | T[]> {
-    if (options?.columnNames) return this.timing.measure(() => this.inner.raw<T>(options));
-    return this.timing.measure(() => this.inner.raw<T>(options));
+    const native = this.inner as D1PreparedStatement & { dbSession?: RawResultSession };
+    const session = native.dbSession;
+    let statement = this.inner;
+    let result: D1Response | undefined;
+    if (typeof session?._sendOrThrow === "function") {
+      // Scope the observer to this invocation. The original session handles the query and its bookmark.
+      const observed: RawResultSession = Object.create(session);
+      observed._sendOrThrow = async (...args) => {
+        const reply = await session._sendOrThrow(...args);
+        result = Array.isArray(reply) ? reply[0] : reply;
+        return reply;
+      };
+      statement = Object.assign(Object.create(native), { dbSession: observed });
+    }
+    // Bindings that hide the envelope still return their native raw rows.
+    return this.timing.measure<[string[], ...T[]] | T[]>(
+      () => options?.columnNames ? statement.raw<T>(options) : statement.raw<T>(options),
+      () => { if (result) this.timing.recordResult(result); },
+    );
   }
 }
 

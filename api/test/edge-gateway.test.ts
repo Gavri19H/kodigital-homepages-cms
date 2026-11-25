@@ -31,7 +31,7 @@ const listicle = {
   listicleId: "art_11", publishedVersion: control, experiment: { publicId: "exp_11", versions: [alternate, control] },
 };
 const snapshot: SiteSnapshot = {
-  v: 1, siteId: "site-a", hostname: "tenant.example", status: "active",
+  v: 1, siteId: "site-a", hostname: "tenant.example", verticalSlug: "home", status: "active",
   contentVersion: 9, settingsVersion: 2, writeBookmark: "last-write", timeZone: "UTC", language: "en", builtAt: 123,
   listicles: { guide: listicle, rss: listicle, lg: listicle },
   leadgen: { "/lg": quote(rootVariant), life: quote(lifeVariant) },
@@ -194,7 +194,13 @@ describe("public page cache keys", () => {
     expect(calls[1]!.props.variantKey).toBe("human");
     for (const { props, request: forwarded } of calls) {
       const internal = [...forwarded.headers].filter(([k]) => k.startsWith("x-cms-") || k === "cookie");
-      expect(internal).toEqual(props.variantKey === "snap" ? [] : [["x-cms-snap-version", version]]);
+      expect(internal).toEqual(props.variantKey === "snap" ? [] : [
+        ["x-cms-site-context", JSON.stringify({
+          site_id: "site-a", hostname: "tenant.example", vertical_slug: "home", status: "active",
+          content_version: 9, settings_version: 2,
+        })],
+        ["x-cms-snap-version", version],
+      ]);
     }
     expect(calls[1]!.request.headers.get("x-public")).toBe("request");
     expect([...response.headers.keys()].filter(k => k.startsWith("x-cms-"))).toEqual([]);

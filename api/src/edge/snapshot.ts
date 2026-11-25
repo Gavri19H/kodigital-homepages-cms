@@ -20,6 +20,7 @@ function isSiteSnapshot(value: unknown): value is SiteSnapshot {
   return isRecord(value) && value.v === 1
     && typeof value.siteId === "string" && value.siteId.trim() !== ""
     && typeof value.hostname === "string" && value.hostname.trim() !== ""
+    && (value.verticalSlug === undefined || (typeof value.verticalSlug === "string" && value.verticalSlug.trim() !== ""))
     && typeof value.status === "string"
     && Number.isFinite(value.contentVersion) && Number.isFinite(value.settingsVersion)
     && isNullableString(value.writeBookmark)
@@ -84,6 +85,7 @@ export async function buildSiteSnapshot(env: Env, hostname: string, timing?: D1T
     v: 1,
     siteId,
     hostname: site.hostname,
+    verticalSlug: site.vertical_slug,
     status: site.status,
     contentVersion: versions.content_version,
     settingsVersion: versions.settings_version,

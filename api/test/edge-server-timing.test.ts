@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { applyEdgeCacheHeaders } from "../src/cache/cache-control";
 import { D1Timing, renderReadDb } from "../src/db/read-session";
 import { gatewayFetch } from "../src/edge/gateway";
 import { PublicPage } from "../src/edge/public-page";
-import { buildSiteSnapshot } from "../src/edge/snapshot";
-import type { PublicPageProps } from "../src/edge/types";
+import * as snapshots from "../src/edge/snapshot";
+import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
 import * as app from "../src/index";
 import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
@@ -27,10 +28,12 @@ const titleSql = "SELECT ? AS title";
 const creditSql = "SELECT ? AS credit";
 
 function countingDb() {
+  const domain = { site_id: siteId, hostname: host, status: "active" };
   const { db, calls } = makeFakeDb([
-    { match: "FROM domains", row: { site_id: siteId, hostname: host, status: "active" } },
+    { match: "FROM domains", row: domain },
     { match: titleSql, row: { title: headline } },
   ], [
+    { match: "FROM domains", rows: [domain] },
     { match: "FROM sites WHERE", rows: [{ content_version: 2, settings_version: 1, write_bookmark: "published" }] },
     { match: titleSql, rows: [{ title: headline }] },
     { match: creditSql, rows: [{ credit: "Zoë" }] },
@@ -44,7 +47,7 @@ function countingDb() {
     stmt.all = async <T>() => {
       const result = await all<T>();
       if (!sql.includes("FROM leadgen_site_quotes")) {
-        const primary = sql === titleSql || sql.includes("FROM site_settings");
+        const primary = sql === titleSql || sql.includes("FROM domains");
         Object.assign(result.meta, { served_by_primary: primary, served_by_region: primary ? "EEUR" : "WNAM" });
       }
       return result;
@@ -68,6 +71,7 @@ function countingDb() {
 function cachedGateway() {
   const fixture = countingDb();
   const env = buildEnv(fixture.db);
+  env.PERFSTAGE = "true";
   const { ctx } = ctxCapture();
   let clock = 100;
   vi.spyOn(performance, "now").mockImplementation(() => clock);
@@ -102,7 +106,7 @@ function cachedGateway() {
       },
     }),
   } });
-  const fallback = vi.fn(() => Response.redirect(origin + "/live", 302));
+  const fallback = vi.fn<Parameters<typeof gatewayFetch>[3]>(() => Response.redirect(origin + "/live", 302));
   const visit = (init?: RequestInit, path = "/article/story") =>
     gatewayFetch(new Request(origin + path, init), env, ctx, fallback);
   return { ...fixture, env, render, visit, cache, fallback };
@@ -113,16 +117,16 @@ function timingEntries(response: Response): string[] | undefined {
 }
 
 const snapMetrics = [
-  "snap-build;dur=0", 'snap-d1;dur=0;desc="rounds=2 calls=2 primary=1 replica=2 region=WNAM"',
+  "snap-build;dur=0", 'snap-d1;dur=0;desc="rounds=2 calls=2 primary=1 replica=3 region=EEUR"',
 ];
 const pageMetrics = [
-  "renderer;dur=1", "build;dur=25", 'd1;dur=18;desc="rounds=2 calls=3 primary=2 replica=1 region=EEUR"',
+  "renderer;dur=1", "build;dur=25", 'd1;dur=18;desc="rounds=2 calls=3 primary=3 replica=1 region=EEUR"',
 ];
 
 it("reports each fresh build, overlapping D1 wall time and result locations without changing response bytes", async () => {
   const { db, env, render, visit, cache, calls, batchSizes, withSession } = cachedGateway();
   const plainPage = applyEdgeCacheHeaders(await render(db), { siteId, path: "/article/story" });
-  const plainSnap = Response.json(await buildSiteSnapshot(env, host));
+  const plainSnap = Response.json(await snapshots.buildSiteSnapshot(env, host));
   calls.length = batchSizes.length = 0;
   withSession.mockClear();
 
@@ -144,6 +148,70 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
 });
 
+it.each([undefined, "false", "TRUE"])("omits timings from production misses, stored snapshots and hits with PERFSTAGE=%s", async flag => {
+  const { env, visit, cache, calls } = cachedGateway();
+  env.APP_ENV = "production";
+  env.PERFSTAGE = flag;
+  const measure = vi.spyOn(D1Timing.prototype, "measure");
+  const miss = await visit({ headers: { "x-perfstage-direct": "1" } });
+  expect(miss.status).toBe(200);
+  expect(miss.headers.get("x-edge-cache")).toBe("MISS");
+  expect(miss.headers.get("Server-Timing")).toBeNull();
+  const bytes = await miss.bytes();
+  for (const key of ["snap", "human"]) {
+    const stored = cache.get(key)!;
+    expect(stored.status).toBe(200);
+    expect(stored.headers.get("Server-Timing")).toBeNull();
+    stored.headers.set("Server-Timing", 'd1;dur=12;desc="primary=1 region=EEUR"');
+  }
+  calls.length = 0;
+  const hit = await visit();
+  expect(hit.headers.get("x-edge-cache")).toBe("HIT");
+  expect(hit.headers.get("Server-Timing")).toBeNull();
+  expect(await hit.bytes()).toEqual(bytes);
+  expect(measure).not.toHaveBeenCalled();
+  expect(calls).toHaveLength(0);
+});
+
+it("evicts snapshot versions after eight builds and reuses each retained content hash", async () => {
+  const { visit, cache, fallback } = cachedGateway();
+  const build = vi.spyOn(snapshots, "buildSiteSnapshot");
+  const entries: Response[] = [];
+  const versions: string[] = [];
+  const read = async () => {
+    await visit({}, "/lg/attempt");
+    return fallback.mock.lastCall?.[0].headers.get("x-cms-snap-version");
+  };
+  // These snapshots have the same site, timestamp and length, but differ in content.
+  for (let i = 0; i < 9; i++) {
+    const snapshot: SiteSnapshot = {
+      v: 1, siteId, hostname: host, status: "active", builtAt: 500, contentVersion: 1, settingsVersion: 1,
+      writeBookmark: null, timeZone: "UTC", language: String(i), leadgen: {}, listicles: {},
+    };
+    const { builtAt: _builtAt, ...content } = snapshot;
+    const expected = createHash("sha256").update(JSON.stringify(content)).digest("hex");
+    build.mockResolvedValueOnce(snapshot);
+    cache.delete("snap");
+    expect(await read()).toBe(expected);
+    versions.push(expected);
+    const entry = cache.get("snap")!;
+    const hash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+    expect(entry.headers.get("ETag")).toBe('"' + hash + '"');
+    entries.push(entry);
+  }
+  const digest = vi.spyOn(crypto.subtle, "digest");
+  // Compression can weaken a stored ETag while preserving its digest.
+  entries[1]!.headers.set("ETag", "W/" + entries[1]!.headers.get("ETag"));
+  for (let i = 1; i < entries.length; i++) {
+    cache.set("snap", entries[i]!);
+    expect(await read()).toBe(versions[i]);
+  }
+  expect(digest).not.toHaveBeenCalled();
+  cache.set("snap", entries[0]!);
+  expect(await read()).toBe(versions[0]);
+  expect(digest).toHaveBeenCalledTimes(1);
+});
+
 it("returns the same article HTML bytes and cache headers as a direct Hono build", async () => {
   const sql = createDb();
   const { ctx, promises } = ctxCapture();
@@ -153,6 +221,7 @@ it("returns the same article HTML bytes and cache headers as a direct Hono build
     sql.prepare("INSERT INTO articles (site_id, slug, title, content_json, status, published_at) VALUES (?, ?, ?, ?, 'published', ?)")
       .run(siteId, "story", headline, '{"blocks":[]}', 100);
     const env = sqliteEnv(sql);
+    env.PERFSTAGE = "true";
     const request = new Request(origin + "/article/story", { headers: { "x-cms-variant": "human" } });
     const direct = await app.honoFetch(request.clone(), { ...env, EDGE_INNER: "1" }, ctx);
     const expected = applyEdgeCacheHeaders(direct, { siteId, path: "/article/story" });
@@ -229,12 +298,12 @@ it("preserves D1 results and errors when metadata or the clock is unavailable", 
   const native = db.prepare("SELECT ? AS value").bind(1);
   vi.spyOn(db, "prepare").mockReturnValue(native);
   const row = { meta: { served_by_primary: true, served_by_region: "row data" } };
-  const first = vi.spyOn(native, "first").mockResolvedValue(row);
   native.raw = vi.fn();
   vi.mocked(native.raw).mockResolvedValueOnce([["value"], [1]]).mockResolvedValueOnce([[1]]);
-  const result: D1Result = { success: true, results: [], get meta(): D1Meta & Record<string, unknown> {
+  const result: D1Result = { success: true, results: [{ value: row }], get meta(): D1Meta & Record<string, unknown> {
     throw new Error("unavailable metadata");
   } };
+  const all = vi.spyOn(native, "all").mockResolvedValue(result);
   const error = new Error("D1 failed");
   vi.spyOn(native, "run").mockResolvedValueOnce(result).mockRejectedValueOnce(error);
   vi.spyOn(performance, "now").mockImplementation(() => { throw new Error("unavailable clock"); });
@@ -242,13 +311,58 @@ it("preserves D1 results and errors when metadata or the clock is unavailable", 
   const timing = new D1Timing();
   const stmt = renderReadDb(db, "bookmark", timing).prepare("SELECT ? AS value").bind(1);
   expect(await stmt.first("value")).toBe(row);
-  expect(first).toHaveBeenCalledExactlyOnceWith("value");
+  expect(all).toHaveBeenCalledExactlyOnceWith();
   expect(await stmt.raw({ columnNames: true })).toEqual([["value"], [1]]);
   expect(native.raw).toHaveBeenCalledExactlyOnceWith({ columnNames: true });
   expect(await stmt.raw()).toEqual([[1]]);
   expect(await stmt.run()).toBe(result);
   await expect(stmt.run()).rejects.toBe(error);
   expect(timing).toMatchObject({ calls: 5, rounds: 5, wallMs: 0, primary: 0, replica: 0, regions: new Set() });
+});
+
+it("records the first read's location for a row, a null column, a missing column and an empty result", async () => {
+  const { db } = countingDb();
+  const timing = new D1Timing();
+  const reads = renderReadDb(db, "published", timing);
+  const stmt = reads.prepare(titleSql).bind(headline);
+  expect(await stmt.first()).toEqual({ title: headline });
+  expect(await stmt.first("title")).toBe(headline);
+  await expect(stmt.first("missing")).rejects.toThrow("D1_COLUMN_NOTFOUND: Column not found (missing)");
+  expect(await reads.prepare("SELECT 1 WHERE 0").first("missing")).toBeNull();
+  const { db: nullDb } = makeFakeDb([], [{ match: "SELECT NULL", rows: [{ value: null }] }]);
+  expect(await renderReadDb(nullDb, null, timing).prepare("SELECT NULL AS value").first("value")).toBeNull();
+  expect(timing).toMatchObject({ calls: 5, rounds: 5, primary: 3, replica: 1, regions: new Set(["EEUR", "WNAM"]) });
+});
+
+it("records raw query metadata without losing duplicate columns, column order or empty-result headers", async () => {
+  const columns = ["name", "1", "name"];
+  const rows = [["first", 0, null]];
+  const reply = (values: unknown[][], primary: boolean) => ({
+    results: { columns, rows: values }, meta: { served_by_primary: primary, served_by_region: primary ? "EEUR" : "WNAM" },
+  });
+  const populated = reply(rows, false);
+  const query = vi.fn<() => Promise<typeof populated | [typeof populated]>>()
+    .mockResolvedValueOnce(populated).mockResolvedValueOnce([populated]).mockResolvedValueOnce(reply([], true));
+  const session = { _sendOrThrow: query };
+  const { db } = makeFakeDb();
+  const native = Object.assign(db.prepare("SELECT 1"), {
+    dbSession: session,
+    // Model workerd's projection of a single query reply into positional rows.
+    async raw(this: { dbSession: typeof session }, options?: { columnNames?: boolean }) {
+      const response = await this.dbSession._sendOrThrow();
+      const { results } = Array.isArray(response) ? response[0] : response;
+      return options?.columnNames ? [results.columns, ...results.rows] : results.rows;
+    },
+  });
+  vi.spyOn(db, "prepare").mockReturnValue(native);
+  const timing = new D1Timing();
+  const stmt = renderReadDb(db, "published", timing).prepare("SELECT 1");
+  expect(await stmt.raw({ columnNames: true })).toEqual([columns, ...rows]);
+  expect(await stmt.raw()).toEqual(rows);
+  expect(await stmt.raw({ columnNames: true })).toEqual([columns]);
+  expect(query.mock.contexts).toEqual([session, session, session]);
+  expect(native.dbSession).toBe(session);
+  expect(timing).toMatchObject({ calls: 3, rounds: 3, primary: 1, replica: 2, regions: new Set(["WNAM", "EEUR"]) });
 });
 
 it("observes each batch result's region across a child session and keeps its bookmark", async () => {

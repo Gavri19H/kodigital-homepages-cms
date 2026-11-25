@@ -107,9 +107,17 @@ function measure(sql: SqliteDb) {
     return reply;
   }
   const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  const batchMembers = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+  db.batch = async <T>(statements: D1PreparedStatement[]) => {
+    await send(`D1 batch (${statements.length} statements)`);
+    return batch<T>(statements.map(stmt => batchMembers.get(stmt)!));
+  };
   db.prepare = (query) => {
     const stmt = prepare(query);
     const { first, all, run } = stmt; // harness bind() returns this same statement
+    // Native D1 runs the batch in one call and returns the rows of its SELECTs.
+    batchMembers.set(stmt, { bind: stmt.bind, raw: stmt.raw, first, all, run: /^\s*(?:WITH|SELECT)\b/i.test(query) ? all : run });
     stmt.first = async <T>(column?: string) => {
       await send(query);
       return column === undefined ? first<T>() : first<T>(column);
@@ -356,10 +364,18 @@ function buildRounds() {
 
 function expectOriginalBuild(kind: keyof typeof original, bytes: string) {
   const rounds = buildRounds();
-  expect(bytes).toBe(gunzipSync(Buffer.from(original[kind], "base64")).toString("utf8"));
+  let expected = gunzipSync(Buffer.from(original[kind], "base64")).toString("utf8");
+  if (kind === "bundle") {
+    // The shell definition no longer stores an attempt's signing inputs.
+    const { bindings, ...definition } = JSON.parse(expected);
+    expect(bindings).toHaveProperty("auction_config_version");
+    expected = JSON.stringify(definition);
+  }
+  expect(bytes).toBe(expected);
   expect(rounds.length).toBeLessThanOrEqual(3);
-  // One definition read followed by the three concurrent binding/shell reads.
-  expect(rounds.map(round => round.length)).toEqual([1, 3]);
+  // An attempt's primary batch overlaps the definition read on a cold miss.
+  expect(rounds.map(round => round.length)).toEqual(kind === "attempt" ? [2, 2] : [1, 2]);
+  if (kind === "attempt") expect(rounds[0]).toContain("D1 batch (3 statements)");
 }
 
 it("preserves the complete freshly resolved bundle", async () => {
@@ -401,7 +417,7 @@ it("loads only the serving site's published footer picks in the dependent round"
     ...picks.map(pick => ({ label: pick.label, href: "/" + pick.slug })), { label: "Privacy", href: "/fallback" },
   ]);
   const rounds = buildRounds();
-  expect(rounds.map(round => round.length)).toEqual([1, 1, 3]);
+  expect(rounds.map(round => round.length)).toEqual([1, 1, 2]);
   expect(rounds[1]![0]).toContain("FROM pages");
 });
 
