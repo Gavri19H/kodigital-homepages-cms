@@ -128,7 +128,7 @@ export async function loadFunnelAttemptInputs(
     useBundle
       ? loadPreparedFunnelBundle(env, headers, siteId, variantId, ctx).then(bundle => bundle?.resolved)
       : resolveActivatedFunnelByVariant(env, siteId, variantId),
-    readLiveAttemptConfig(env.DB, siteId, variantId).catch(() => undefined),
+    readLiveAttemptConfig(env.DB, siteId, variantId, headers.get("x-cms-bookmark")).catch(() => undefined),
   ]);
   if (live === null) return null;
   if (definition && live && definition.variant.id === live.variant.variant_id &&

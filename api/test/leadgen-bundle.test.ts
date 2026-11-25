@@ -205,10 +205,10 @@ function expectOneKvRead(key: string) {
   expect(kv.kv.getWithMetadata).not.toHaveBeenCalled();
 }
 
-function liveBindingReads() {
+function liveBindingReads(connection: string) {
   return ["carrier_normalization_version AS auction_version", "FROM placements p JOIN leadgen_sections",
     "FROM leadgen_quote_routing_rules WHERE quote_id"].map(fragment => ({
-    connection: "primary", query: expect.stringContaining(fragment),
+    connection, query: expect.stringContaining(fragment),
   }));
 }
 
@@ -239,8 +239,8 @@ it("mints byte-identical attempts from a shell-prepared bundle with the live bin
   expect(await warm.text()).toBe(body);
   expect(outcomes.all()).toEqual(row);
   expectOneKvRead(bundleKey());
-  expect(statements).toEqual([...liveBindingReads(), ...writes]);
-  expect(sessions).toEqual([]);
+  expect(statements).toEqual([...liveBindingReads(bookmark), ...writes]);
+  expect(sessions).toEqual([bookmark]);
 });
 
 it("renders byte-identical shell HTML from an attempt-prepared bundle, including the theme and offer click config", async () => {
@@ -261,9 +261,10 @@ it("renders byte-identical shell HTML from an attempt-prepared bundle, including
   await Promise.all(capture.promises);
   const key = "lgbundle:" + siteId + ":" + variant + ":" + testVersion + ":" + LEADGEN_TEMPLATE_VERSION + ":worker-42";
   expect(kv.kv.put).toHaveBeenCalledExactlyOnceWith(key, expect.any(String), { expirationTtl: 604800 });
-  expect(sessions).toEqual([bookmark]);
+  expect(sessions).toEqual([bookmark, bookmark]);
+  expect(statements).toEqual(expect.arrayContaining(liveBindingReads(bookmark)));
   expect(statements.filter(s => s.connection === "primary")).toEqual([
-    ...liveBindingReads(), { connection: "primary", query: expect.stringContaining("INSERT OR REPLACE") },
+    { connection: "primary", query: expect.stringContaining("INSERT OR REPLACE") },
   ]);
   clearTrace();
   const warm = await shell(testVersion);
@@ -421,13 +422,13 @@ it.each(["malformed", "wrong shape", "altered rule", "other site"])("evicts and 
   expect(rebuilt.status).toBe(200);
   expect(await rebuilt.text()).toBe(expected);
   expect(kv.kv.delete).toHaveBeenCalledExactlyOnceWith(key);
-  expect(sessions).toEqual([bookmark]);
+  expect(sessions).toEqual([bookmark, bookmark]);
   await Promise.all(capture.promises);
   expect(kv.store.get(key)).toBe(stored);
   clearTrace();
   expect(await (await attempt(testVersion)).text()).toBe(expected);
   expectOneKvRead(key);
-  expect(statements).toEqual([...liveBindingReads(), { connection: "primary", query: expect.stringContaining("INSERT OR REPLACE") }]);
+  expect(statements).toEqual([...liveBindingReads(bookmark), { connection: "primary", query: expect.stringContaining("INSERT OR REPLACE") }]);
 });
 
 it("uses the live loaders without a valid snapshot version even when KV is warm", async () => {
@@ -438,6 +439,7 @@ it("uses the live loaders without a valid snapshot version even when KV is warm"
     expect((await attempt(undefined, { ...visitor, ...extra })).status).toBe(200);
     expect(statements).toHaveLength(6);
     expect(statements.every(s => s.connection === "primary")).toBe(true);
+    expect(statements).toEqual(expect.arrayContaining(liveBindingReads("primary")));
     expect(kv.kv.get).not.toHaveBeenCalled();
   }
   clearTrace();
@@ -469,7 +471,7 @@ it("uses the current visitor's cookie, landing URL and geography on a warm attem
   expect(second.ctx?.state).toBe("NY");
   expect(second.cc).toBeUndefined();
   expectOneKvRead(bundleKey());
-  expect(statements).toEqual(liveBindingReads()); // organic traffic did not match the paid routing rule
+  expect(statements).toEqual(liveBindingReads(bookmark)); // organic traffic did not match the paid routing rule
 });
 
 it("hands the bundle put to waitUntil while the outcome has already committed", async () => {
