@@ -462,7 +462,7 @@ it.skipIf(!hasSqlite)("drains due edge purges through the default Worker's sched
     const purgeTags = vi.fn().mockResolvedValue({ success: true, errors: [] });
     const exports: Cloudflare.Exports = { PublicPage: { purgeTags } };
     const ctx = testContext(exports);
-    await worker.scheduled({} as ScheduledController, bindings, ctx);
+    await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 25, 12, 1), noRetry() {} }, bindings, ctx);
     expect(purgeTags).toHaveBeenCalledExactlyOnceWith(tags);
     expect(db.prepare("SELECT status FROM cache_purge_log WHERE action = ?").all("purge_tags_second"))
       .toEqual([{ status: "completed" }]);

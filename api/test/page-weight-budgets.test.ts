@@ -16,13 +16,14 @@ const quoteId = (prefix: string) => prefix + "_" + "1".padStart(26, "0");
 // ceil(measured HTML bytes / 2048) * 2048, independently for raw and Brotli.
 // P4-FX6 re-pinned home at 49,640 raw bytes under TZ=UTC.
 // P5-A adds the inline vitals script. Only crossed 2 KiB buckets moved.
+// P5-D measured the listicle with that script at 36,477 raw and 8,552 Brotli bytes under TZ=UTC.
 const budgets = [
   { page: "home",     raw: 53_248,  brotli: 8_192,  path: "/",                              content: ".picks-grid img" },
   { page: "article",  raw: 26_624,  brotli: 6_144,  path: "/article/morning-light-rituals", content: ".article-hero-img img" },
   { page: "category", raw: 20_480,  brotli: 6_144,  path: "/category/wellness",             content: ".home-grid--category .card" },
   { page: "tag",      raw: 18_432,  brotli: 4_096,  path: "/tag/editors-picks",             content: ".home-grid--tag .card" },
   { page: "page",     raw: 12_288,  brotli: 4_096,  path: "/page/our-desk",                 content: ".page-content p" },
-  { page: "listicle", raw: 34_816,  brotli: 8_192,  path: "/morning-guide",                 content: ".lst-section h3", variant: "lst:ver_guide" },
+  { page: "listicle", raw: 36_864,  brotli: 10_240, path: "/morning-guide",                 content: ".lst-section h3", variant: "lst:ver_guide" },
   { page: "quote",    raw: 110_592, brotli: 18_432, path: "/lg/home",                       content: "[data-lg-section] .lg-headline", variant: "lg:" + quoteId("lgn") },
 ];
 
@@ -177,6 +178,13 @@ describe("public page weight budgets", () => {
     const html = bytes.toString("utf8");
     const doc = parseHtml(html);
     expect(doc.querySelector(budget.content), `populated ${budget.path}`).not.toBeNull();
+    if (budget.page === "listicle") {
+      expect(doc.querySelector("html")?.getAttribute("data-pt")).toBe("listicle");
+      expect(html.split(VITALS_BEACON)).toHaveLength(2);
+      const withoutMeter = html.replace(' data-pt="listicle"', "").replace(VITALS_BEACON + "\n", "");
+      expect.soft(Buffer.byteLength(withoutMeter), "raw listicle bytes excluding vitals").toBeLessThanOrEqual(34_816);
+      expect.soft(brotliCompressSync(withoutMeter).byteLength, "Brotli listicle bytes excluding vitals").toBeLessThanOrEqual(8_192);
+    }
     if (budget.page === "home") {
       // Preserve the original homepage budget after accounting for the two
       // measured additions: image priority hints and the inline speed meter.

@@ -106,6 +106,7 @@ interface RouteCase {
 // The "before" round counts were recorded with this seed and clock at 3e19664b.
 // Stage 4 merge 66416747 under TZ=UTC, with only the P4-FX2 static asset URLs updated.
 // P5-A adds the inline vitals meter and page type to the editorial HTML.
+// P5-D adds the same meter to the /legacy listicle.
 // SHA-256 covers the entire HTTP response body, including formatting and UTF-8.
 const emptyBody = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const aboutBody = "ffb267ee87999f946b4066953caa6371661ccca833f3a8fbf48ca07eff5559fc";
@@ -124,7 +125,7 @@ const cases: RouteCase[] = [
   { path: "/about", before: 6, after: 2, digest: aboutBody },
   { path: "/notes", before: 5, after: 2, digest: notesBody },
   { path: "/legacy", status: 302, location: "/new-home", before: 1, after: 1, digest: emptyBody },
-  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 1, digest: "bd2eda074e140b48d12e4bb239e3a0c59c332eb2a2b6fed99970808733a639a0" },
+  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 1, digest: "e31609d0daec6ebc87140d36541e5ade76db71297576530140104001f3daf1d5" },
   { path: "/ridge", status: 301, location: "/article/ridge", before: 4, after: 2, digest: emptyBody },
   { path: "/feed.xml", before: 1, after: 1, digest: rssBody },
   { path: "/rss", before: 1, after: 1, digest: rssBody },

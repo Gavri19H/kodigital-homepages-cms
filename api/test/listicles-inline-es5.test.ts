@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { VITALS_BEACON } from "../src/edge/vitals";
 import {
   renderListicleDocument,
   type ListicleRenderInput,
@@ -121,9 +122,12 @@ const bigDoc = renderListicleDocument(
   ),
 ).html;
 
-describe("public listicle shell — inline scripts are strict ES5", () => {
+// The shared vitals meter uses modern JavaScript syntax. Exclude its exact bytes
+// from the ES5 checks. The parse gate below still covers every inline script.
+describe("public listicle shell — listicle scripts are strict ES5", () => {
   it("the under-budget shell ships the Disclosure script (ES5)", () => {
-    const scripts = extractScripts(smallDoc);
+    expect(smallDoc).toContain(VITALS_BEACON);
+    const scripts = extractScripts(smallDoc.replace(VITALS_BEACON, ""));
     expect(scripts.length).toBeGreaterThan(0);
     assertStrictEs5("shell", scripts.join("\n;\n"));
     expect(smallDoc).toContain("lst-disclosure");
@@ -131,7 +135,8 @@ describe("public listicle shell — inline scripts are strict ES5", () => {
   });
 
   it("the over-budget shell adds the lazy-hydrator (ES5, XHR-based)", () => {
-    const scripts = extractScripts(bigDoc);
+    expect(bigDoc).toContain(VITALS_BEACON);
+    const scripts = extractScripts(bigDoc.replace(VITALS_BEACON, ""));
     const joined = scripts.join("\n;\n");
     assertStrictEs5("shell+lazy", joined);
     expect(joined).toContain("XMLHttpRequest");

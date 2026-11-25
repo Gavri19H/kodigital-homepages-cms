@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { SEED_EPOCH, SEED_HOSTNAME, SEED_SITE_ID } from "../scripts/seed/seed-fixture";
 import { buildSeedSql } from "../scripts/seed/seed-sql";
 import { recordEdgeCacheStatus } from "../src/cache/cache-stats";
+import { computeEtag } from "../src/cache/edge-cache";
 import { gatewayFetch } from "../src/edge/gateway";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import { VITALS_BEACON } from "../src/edge/vitals";
@@ -198,6 +199,10 @@ describe("rendered vitals beacon", () => {
     sqlite.prepare("INSERT INTO tags (site_id, slug, name) VALUES (?, 'news', 'News')").run(SEED_SITE_ID);
     sqlite.prepare(`INSERT INTO pages (site_id, slug, title, content_json, content_html, status, updated_at)
       VALUES (?, 'about-us', 'About us', '{}', '<p>About</p>', 'published', ?)`).run(SEED_SITE_ID, SEED_EPOCH);
+    sqlite.prepare(`INSERT INTO listicle_articles (id, public_id, site_id, slug, article_name, status)
+      VALUES (1, 'art_guide', ?, 'morning-guide', 'Morning guide', 'published')`).run(SEED_SITE_ID);
+    sqlite.prepare(`INSERT INTO listicle_article_versions (public_id, article_id, headline, intro_paragraph)
+      VALUES ('ver_guide', 1, 'Morning guide', 'A guide for readers.')`).run();
     const id = "0".repeat(25) + "1";
     sqlite.prepare(`INSERT INTO leadgen_quotes (id, public_id, quote_name, activity, verticals_json, status)
       VALUES (1, ?, 'Home', 'quote_funnel', '[]', 'active')`).run("lgq_" + id);
@@ -212,15 +217,32 @@ describe("rendered vitals beacon", () => {
   it.each([
     ["/", "home", 200], ["/article/morning-light-rituals", "article", 200], ["/category/wellness", "category", 200],
     ["/tag/news", "tag", 200], ["/page/about-us", "page", 200], ["/about-us", "page", 200],
-    ["/article/missing", "other", 404], ["/lg/home", "quote", 200],
+    ["/article/missing", "other", 404], ["/lg/home", "quote", 200], ["/morning-guide", "listicle", 200],
   ] as const)("renders exactly one shared beacon at the end of %s", async (path, type, status) => {
     const response = await honoFetch(new Request(origin + path), env);
     expect(response.status).toBe(status);
     const html = await response.text();
-    expect(html).toContain(`data-pt="${type}"`);
+    expect(html.match(/<html\b[^>]*>/i)?.[0]).toContain(`data-pt="${type}"`);
     expect(html.match(/\/v\/vitals/g)).toHaveLength(1);
     expect(html.slice(html.indexOf(VITALS_BEACON) + VITALS_BEACON.length).trim()).toMatch(/^<\/body>\s*<\/html>$/);
     expect(html).toContain(VITALS_BEACON);
+  });
+
+  it("serves the metered homepage to a browser holding its template v3 ETag", async () => {
+    const page = { site_id: SEED_SITE_ID, path: "/", content_version: 1, settings_version: 1 };
+    const previous = await computeEtag({ ...page, template_version: 3 });
+    const current = await computeEtag(page);
+    const revalidate = (etag: string) => honoFetch(new Request(origin, { headers: { "If-None-Match": etag } }), env);
+
+    const refreshed = await revalidate(previous);
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.headers.get("ETag")).toBe(current);
+    expect(await refreshed.text()).toContain(VITALS_BEACON);
+
+    const matched = await revalidate(current);
+    expect(matched.status).toBe(304);
+    expect(matched.headers.get("ETag")).toBe(current);
+    expect(await matched.text()).toBe("");
   });
 
   it.each(["/admin/pages", "/admin/tags"])("keeps the admin shell at %s free of the public beacon", async path => {

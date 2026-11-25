@@ -8,6 +8,7 @@
 
 import { listicleBlocksToHtml, offerRefString, GOVERNED_LINK_REL } from "../../editor/listicle-blocks";
 import { escapeHtml, isSafeUrl } from "../../editor/sanitize";
+import { VITALS_BEACON } from "../../edge/vitals";
 import { responsiveImg } from "../templates/responsive-img";
 import { renderCustomHead, renderConsentHead } from "../../settings/custom-html";
 import { getLayout, type ListiclePageVm } from "./layouts/registry";
@@ -595,7 +596,7 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
   const lazyScript = lazyCandidateIds.length > 0 ? `<script>${LAZY_HYDRATE_SCRIPT}</script>` : "";
 
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-pt="listicle">
 <head>
 ${head}
 </head>
@@ -606,6 +607,7 @@ ${renderLegalDisclosureBlock()}
 ${renderListicleFooter(input.brand, input.hostname)}
 ${lazyScript}
 ${beaconScriptTag()}
+${VITALS_BEACON}
 </body>
 </html>`;
 

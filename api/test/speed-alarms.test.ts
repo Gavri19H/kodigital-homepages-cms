@@ -261,6 +261,17 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it.each([["hourly", firstTick], ["weekly", monday]] as const)(
+    "skips the %s alarm when an ordinary cron tick arrives one minute late", async (_alarm, wallTime) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(wallTime);
+      const read = vi.spyOn(env.CACHE, "get");
+      await scheduled(wallTime - minute);
+      expect(read).not.toHaveBeenCalledWith(expect.stringMatching(/^speed:v1:/));
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries a rate-limited weekly webhook on Monday's tick and remembers its successful delivery", async () => {
     send.mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "Retry-After": "0" } }));
     await runSpeedAlarms(env, monday);
