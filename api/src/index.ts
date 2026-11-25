@@ -333,6 +333,15 @@ const scheduled = async (
       } catch {
         // revenue maintenance must never break the publish/provisioning cron.
       }
+      try {
+        const tick = new Date(controller.scheduledTime);
+        if (tick.getUTCHours() === 3 && tick.getUTCMinutes() === 10) {
+          const { runZoneSpeedSettingsSweep } = await import("./site-provisioning/cloudflare-interfaces");
+          await runZoneSpeedSettingsSweep(env, env.DB);
+        }
+      } catch {
+        console.error("[zone-speed-settings] Daily sweep failed");
+      }
     }
     try {
       await runEdgePurgeCron(env, ctx);

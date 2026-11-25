@@ -37,6 +37,7 @@
 
 import { isDryRunProvisioning, isRouteMutationAllowed } from "../env";
 import type { Env } from "../env";
+import { postSpeedNotice } from "../edge/speed-alarms";
 import { isProtectedDomain } from "../safety/protected-domains";
 
 export { isDryRunProvisioning, isRouteMutationAllowed };
@@ -145,6 +146,30 @@ export function zoneNameForHostname(hostname: string): string {
   return labels.slice(-2).join(".");
 }
 
+function isProtectedZoneHostname(hostname: string): boolean {
+  // Zone settings also affect protected hosts sharing the apex.
+  return isProtectedDomain(hostname) || isProtectedDomain(zoneNameForHostname(hostname));
+}
+
+function liveZoneMutationEnabled(env: Env): boolean {
+  // An absent or mistyped dry-run binding must never authorize a zone write.
+  return env.SITE_PROVISIONING_DRY_RUN === "false" && env.SITE_PROVISIONING_ALLOW_ROUTE_MUTATION === "true";
+}
+
+interface CloudflareReply<T> {
+  success?: boolean;
+  result?: T;
+  errors?: Array<{ code?: number; message?: string }>;
+}
+
+function cloudflareError(operation: string, response: Response, errors?: CloudflareReply<unknown>["errors"]): string {
+  const messages = Array.isArray(errors)
+    ? errors.map(e => [e?.code, e?.message].filter(Boolean).join(" ")).filter(Boolean).join(", ")
+    : "";
+  const detail = messages || (response.ok ? "invalid or unsuccessful Cloudflare response" : response.statusText);
+  return `${operation} HTTP ${response.status}${detail ? ` · ${detail}` : ""}`;
+}
+
 interface ZoneLookupResult {
   ok: boolean;
   zone_id: string | null;
@@ -157,6 +182,7 @@ interface ZoneLookupResult {
 async function lookupZoneId(
   token: string,
   hostname: string,
+  signal?: AbortSignal,
 ): Promise<ZoneLookupResult> {
   const zoneName = zoneNameForHostname(hostname);
   if (zoneName.length === 0) {
@@ -165,24 +191,127 @@ async function lookupZoneId(
   const url = `${CLOUDFLARE_API_BASE}/zones?name=${encodeURIComponent(zoneName)}&status=active`;
   const res = await fetch(url, {
     method: "GET",
+    signal,
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     },
   });
-  if (!res.ok) {
-    return { ok: false, zone_id: null, error: `zone lookup HTTP ${res.status}` };
-  }
-  const body = (await res.json()) as {
-    success?: boolean;
-    result?: Array<{ id?: string }>;
-  };
-  if (body.success !== true) {
-    return { ok: false, zone_id: null, error: "zone lookup unsuccessful" };
+  const body = await res.json<CloudflareReply<Array<{ id?: string }>>>().catch(() => null);
+  if (!res.ok || body?.success !== true) {
+    return { ok: false, zone_id: null, error: cloudflareError("zone lookup", res, body?.errors) };
   }
   const first = Array.isArray(body.result) ? body.result[0] : undefined;
   const zoneId = first && typeof first.id === "string" ? first.id : null;
   return { ok: true, zone_id: zoneId };
+}
+
+const ZONE_SPEED_SETTINGS = [
+  { setting: "always_use_https", group: "settings", target: "on" },
+  { setting: "min_tls_version", group: "settings", target: "1.2" },
+  { setting: "early_hints", group: "settings", target: "on" },
+  // Enabling Tiered Cache selects the default Smart topology on every plan.
+  { setting: "tiered_caching", group: "argo", target: "on" },
+] as const;
+const ZONE_SPEED_TIMEOUT_MS = 5_000;
+
+type ZoneSpeedSetting = (typeof ZONE_SPEED_SETTINGS)[number]["setting"];
+type ZoneSpeedResult = {
+  setting: ZoneSpeedSetting;
+  before: string | null;
+  after: string | null;
+} & ({ ok: true } | { ok: false; error: string });
+
+async function requestZoneSetting(
+  token: string, url: string, signal: AbortSignal, value?: string,
+): Promise<string> {
+  const method = value === undefined ? "GET" : "PATCH";
+  const response = await fetch(url, {
+    method,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: value === undefined ? undefined : JSON.stringify({ value }),
+    signal,
+  });
+  const body = await response.json<CloudflareReply<{ value?: string }>>().catch(() => null);
+  if (!response.ok || body?.success !== true) {
+    throw new Error(cloudflareError(method, response, body?.errors));
+  }
+  if (typeof body.result?.value !== "string") throw new Error(`${method} returned no setting value`);
+  return body.result.value;
+}
+
+export function applyZoneSpeedSettings(token: string, zoneId: string): Promise<ZoneSpeedResult[]> {
+  return Promise.all(ZONE_SPEED_SETTINGS.map(async ({ setting, group, target }): Promise<ZoneSpeedResult> => {
+    let before: string | null = null;
+    let after: string | null = null;
+    try {
+      // The four independent settings each get one read and at most one write
+      // within a shared deadline for that pair of requests.
+      const signal = AbortSignal.timeout(ZONE_SPEED_TIMEOUT_MS);
+      const url = `${CLOUDFLARE_API_BASE}/zones/${zoneId}/${group}/${setting}`;
+      before = await requestZoneSetting(token, url, signal);
+      after = before === target ? before : await requestZoneSetting(token, url, signal, target);
+      if (after !== target) {
+        return { setting, before, after, ok: false, error: `PATCH returned ${after}, expected ${target}` };
+      }
+      return { setting, before, after, ok: true };
+    } catch (err) {
+      // A rejected or interrupted write leaves the final value unconfirmed.
+      return { setting, before, after, ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }));
+}
+
+interface ZoneSpeedSite {
+  site_id: string;
+  site_name: string;
+  hostname: string;
+}
+
+export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
+  const failures: Array<ZoneSpeedSite & { setting: ZoneSpeedSetting; error: string }> = [];
+  const summary = { sites_checked: 0, zones_checked: 0, settings_updated: 0, failures };
+  if (env.PERFSTAGE === "true" || !liveZoneMutationEnabled(env)) return summary;
+  const token = getProvisioningToken(env);
+  if (token === null) return summary;
+
+  // Match resolveSiteHostname's primary-first preference, restricted to
+  // active canonical rows. sites.domain alone does not prove attachment.
+  const { results: sites } = await db.prepare(`
+    SELECT site_id, site_name, hostname FROM (
+      SELECT s.id AS site_id, s.name AS site_name, d.hostname,
+        ROW_NUMBER() OVER (PARTITION BY s.id ORDER BY d.is_primary DESC, d.id) AS preference
+      FROM domains d JOIN sites s ON s.id = d.site_id
+      WHERE d.kind = ? AND d.status = ? AND s.status = ?
+    ) WHERE preference = 1 ORDER BY site_id
+  `).bind("canonical", "active", "active").all<ZoneSpeedSite>();
+  const byZone = new Map<string, ZoneSpeedResult[]>();
+  for (const site of sites) {
+    if (isProtectedZoneHostname(site.hostname)) continue;
+    summary.sites_checked++;
+    const zoneName = zoneNameForHostname(site.hostname).toLowerCase();
+    let results = byZone.get(zoneName);
+    if (!results) {
+      const zone = await lookupZoneId(token, zoneName, AbortSignal.timeout(ZONE_SPEED_TIMEOUT_MS))
+        .catch((err: unknown) => ({ zone_id: null, error: err instanceof Error ? err.message : String(err) }));
+      results = zone.zone_id
+        ? await applyZoneSpeedSettings(token, zone.zone_id)
+        : ZONE_SPEED_SETTINGS.map(({ setting }) => ({
+          setting, before: null, after: null, ok: false, error: zone.error ?? "No active Cloudflare zone found",
+        }));
+      byZone.set(zoneName, results);
+      summary.zones_checked++;
+      summary.settings_updated += results.filter(r => r.ok && r.before !== r.after).length;
+    }
+    for (const result of results) {
+      if (!result.ok) failures.push({ ...site, setting: result.setting, error: result.error });
+    }
+  }
+  if (failures.length) {
+    const lines = failures.map(f => `${f.site_name} (${f.site_id}) · ${f.hostname} · ${f.setting} · ${f.error}`);
+    await postSpeedNotice(env, ["Daily zone speed sweep could not confirm these settings", ...lines].join("\n"));
+  }
+  return summary;
 }
 
 // T35 — read-only boundary behind validate_domain_in_cloudflare. Never
@@ -271,7 +400,7 @@ export async function runCloudflareRouteMutation(
 ): Promise<CloudflareRouteMutationOutcome> {
   const dryRun = isDryRunProvisioning(ctx.env);
   const allowRouteMutation = isRouteMutationAllowed(ctx.env);
-  if (isProtectedDomain(input.hostname)) {
+  if (isProtectedZoneHostname(input.hostname)) {
     await recordCachePurgeLog(ctx, input, {
       status: "failed",
       response: JSON.stringify({ refused: true, reason: "protected_domain" }),
@@ -282,7 +411,7 @@ export async function runCloudflareRouteMutation(
       error: `Refusing to mutate protected hostname: ${input.hostname}`,
     };
   }
-  if (dryRun || !allowRouteMutation) {
+  if (!liveZoneMutationEnabled(ctx.env)) {
     const outputPayload = {
       mode: "dry_run",
       site_id: input.site_id,
@@ -378,6 +507,7 @@ export async function runCloudflareRouteMutation(
     status: "completed",
     response: JSON.stringify({ attached: true, cf_route_id: routeId }),
   });
+  const speedSettings = await applyZoneSpeedSettings(token, zone.zone_id);
   return {
     status: "completed",
     output: JSON.stringify({
@@ -388,6 +518,7 @@ export async function runCloudflareRouteMutation(
       attached: true,
       cf_route_id: routeId,
       zone_id: zone.zone_id,
+      zone_speed_settings: speedSettings,
     }),
   };
 }

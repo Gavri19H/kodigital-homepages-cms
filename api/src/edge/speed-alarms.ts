@@ -151,6 +151,10 @@ async function deliver(env: Env, text: string): Promise<boolean> {
   return false;
 }
 
+export function postSpeedNotice(env: Env, text: string): Promise<boolean> {
+  return deliver(env, text);
+}
+
 function siteLabel(site: Site): string {
   return site.domain ? `${site.domain} (${site.id})` : site.id;
 }
