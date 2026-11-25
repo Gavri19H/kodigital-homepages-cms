@@ -324,10 +324,8 @@ it("reuses the first location's bundle for a fresh shell build at a second locat
   await Promise.all(capture.promises);
   expect(kv.kv.put).not.toHaveBeenCalled();
   expect(sessions).toEqual(["first-primary", bookmark]);
-  // The primary reads built the second snapshot. The shell only resolved its host.
-  expect(statements.filter(s => s.connection !== "first-primary")).toEqual([
-    { connection: bookmark, query: expect.stringContaining("FROM domains d INNER JOIN sites") },
-  ]);
+  // First-primary reads build the second snapshot. The shell reuses its site context and the KV bundle without querying D1.
+  expect(statements.filter(s => s.connection !== "first-primary")).toEqual([]);
 });
 
 it.each([false, true])("follows a real frame save through snapshot purge and both next requests (omit version = %s)", async omitVersion => {
