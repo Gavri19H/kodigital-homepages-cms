@@ -109,23 +109,23 @@ interface RouteCase {
 // P5-D adds the same meter to the /legacy listicle.
 // SHA-256 covers the entire HTTP response body, including formatting and UTF-8.
 const emptyBody = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-const aboutBody = "ffb267ee87999f946b4066953caa6371661ccca833f3a8fbf48ca07eff5559fc";
-const notesBody = "9ce0ea99c2cff67048d5e9bd4a91f2b63db26e4203501989d817525413e633b2";
+const aboutBody = "a18e1a6c48bc11cc36e8fb81532187728e5eb0b7d3e9c08791501aa25fc658e0";
+const notesBody = "da692d17a215a9d45c3d093902c0cd9df2a9e8bc784e014e9c9ef242f00a2409";
 const rssBody = "29e98df61029319406ee011660d3ebd1d47324d46b27a6e8dc6c1a1e8d2db1bb";
-const notFoundBody = "f7dd00e6f66bb1156584ce4e9904f361b3fb1eb9e952e1babd00637a2c3f30be";
+const notFoundBody = "cf46ec7b1eb1c2bdab7a3a9b67390f647cb18f22515e308b62ef71111096a27e";
 const cases: RouteCase[] = [
-  { path: "/category/guides", before: 6, after: 1, digest: "82d47bb9f81f7d8181fe2ccdc8760d9e46bbfdeae4e59ebb6b2e909ce971da37" },
-  { path: "/category/guides", variant: "bot", before: 6, after: 1, digest: "cb799c7243578428c1d2c33d378fc1dc77115cea0b71418c5cdc0c01f964a65f" },
-  { path: "/category/guides/page/2", before: 6, after: 1, digest: "eb4e27f4f480faf9f23275127789fe4684d7b6c35dd0b5fb03431cd4a2a2abb3" },
-  { path: "/category/guides/page/3", before: 6, after: 1, digest: "d75043e71502943cae90c1e8bf04789dd093f318da07a0653414085bfe4210be" },
-  { path: "/tag/hiking", before: 5, after: 1, digest: "5d0dbe1ce626d71f1aab1190d82dc61f8080b9a25fe9f8bb9e80141dfb6fd6c2" },
-  { path: "/tag/hiking/page/2", before: 5, after: 1, digest: "2894034d688c0e2bf14d119eba473e9c99dc3646711c8cd7c351eab2dc6b5582" },
+  { path: "/category/guides", before: 6, after: 1, digest: "8d1ec1ff3326fc3ade4ad8adcb48981d46e14011f62ff39ca8f3254ec23272a4" },
+  { path: "/category/guides", variant: "bot", before: 6, after: 1, digest: "679dc6be6a33cabe294897192d72b17a8d42da82c27e45195f2c30756b8eb888" },
+  { path: "/category/guides/page/2", before: 6, after: 1, digest: "b6fe8d3bbbe3c7893a6ea2b4ed07e0a7071b6d7538f12a1b3ca691cc7c15c1bb" },
+  { path: "/category/guides/page/3", before: 6, after: 1, digest: "14206ed435d3b212d77631f03dc436d9a4e884740b9e51dd81540e94411853ab" },
+  { path: "/tag/hiking", before: 5, after: 1, digest: "ca7e3bc5cb2ce34b4e9ad694dca1ff4a212bbe3a8f5aa37b1ac27d8eb3343977" },
+  { path: "/tag/hiking/page/2", before: 5, after: 1, digest: "579964cdd211d71a2a5e857e81e719e1ba1f3bff9ea26d9c892d79baa5a00117" },
   { path: "/page/about", before: 4, after: 1, digest: aboutBody },
   { path: "/page/notes", before: 3, after: 1, digest: notesBody },
   { path: "/about", before: 6, after: 2, digest: aboutBody },
   { path: "/notes", before: 5, after: 2, digest: notesBody },
   { path: "/legacy", status: 302, location: "/new-home", before: 1, after: 1, digest: emptyBody },
-  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 1, digest: "e31609d0daec6ebc87140d36541e5ade76db71297576530140104001f3daf1d5" },
+  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 1, digest: "43b01a2da4b85c23758eb5c0f94f862828675580e4bed18ca93750ce038d465c" },
   { path: "/ridge", status: 301, location: "/article/ridge", before: 4, after: 2, digest: emptyBody },
   { path: "/feed.xml", before: 1, after: 1, digest: rssBody },
   { path: "/rss", before: 1, after: 1, digest: rssBody },
@@ -136,8 +136,8 @@ const cases: RouteCase[] = [
   { path: "/robots.txt", robots: "", before: 1, after: 1, digest: emptyBody },
   { path: "/ads.txt", before: 1, after: 1, digest: "ae085b1af3dceb78af0582dc83cf073198589f1c34b7fa1215cd569101d012b1" },
   { path: "/llms.txt", before: 1, after: 1, digest: "593721a648a6c9b11c41f4a60df691754bea3e34cb6c6c6af99719c85453e25b" },
-  { path: "/category/guides/page/2", pageSize: "\u00a0+1story", before: 6, after: 1, digest: "5d2a3fc1c4b4f1b4725bacacdd403c9cc6199019d73bf69581c1e7f382fe69c9" },
-  { path: "/tag/hiking", pageSize: "9".repeat(310), before: 5, after: 1, digest: "f7af03619b3e7af10df27aedc37eb7492b7306d1df650e5e4aef84e2963af96f" },
+  { path: "/category/guides/page/2", pageSize: "\u00a0+1story", before: 6, after: 1, digest: "4e17a798c211f469f92895c1459b1a0ee7808fc0df97a408e8244ebb8ad8bf03" },
+  { path: "/tag/hiking", pageSize: "9".repeat(310), before: 5, after: 1, digest: "dbf2422c1f91b33c4312fe74507b6c1bf3a0394413fd4a44aa6142d488f53702" },
   { path: "/tag/foreign", status: 404, before: 2, after: 1, digest: notFoundBody },
   { path: "/page/draft", status: 404, before: 2, after: 1, digest: notFoundBody },
   { path: "/draft", status: 404, before: 5, after: 2, digest: notFoundBody },

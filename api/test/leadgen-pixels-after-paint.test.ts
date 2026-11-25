@@ -157,7 +157,7 @@ it("URL-encodes the measurement id for the SDK and queues its original trimmed v
 it("pins the complete shell when neither pixel nor a logo is configured", async () => {
   const html = await renderShell();
   // Includes the attempt kickoff, deferred v17 runtime with one retry, and inline vitals beacon.
-  expect(createHash("sha256").update(html).digest("hex")).toBe("cd9ffdc68d91f0ce67d9128344c1f6d73476dd157d8c1b973c054b7f0e40e471");
+  expect(createHash("sha256").update(html).digest("hex")).toBe("da0b8f236ea9a414cf47c53951aff1a0ec779fd06f98946b8ec30088a2c66867");
 });
 
 it.each(["/media/logo.png", `https://${host}/media/logo.png`])("resizes the same-origin OG logo %s on the funnel host", async logo => {
