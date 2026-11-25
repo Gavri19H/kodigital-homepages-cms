@@ -93,6 +93,7 @@ function cardFromVm(c: HomeArticleCard): string {
     excerpt: c.excerpt,
     imageUrl: c.imageUrl,
     imageAlt: c.imageAlt,
+    fetchpriority: "low",
     publishedAt: c.publishedAt,
     categoryName: c.categoryName,
     readMinutes: c.readMinutes,
@@ -167,7 +168,7 @@ function renderStoryRow(c: HomeArticleCard, isLcp: boolean): string {
     c.imageUrl !== null && c.imageUrl.length > 0
       ? responsiveImg({
           src: c.imageUrl, alt: c.imageAlt, width: 110, height: 80, sizes: "110px",
-          ...(isLcp ? PICKS_LCP_HINTS : {}),
+          ...(isLcp ? PICKS_LCP_HINTS : { fetchpriority: "low" }),
         })
       : `<div class="ph" data-label="${escAttr(c.categoryName.length > 0 ? c.categoryName : c.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
   const metaParts: string[] = [];
@@ -194,7 +195,7 @@ function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>, hasCssHero: b
     alt: lead.imageAlt,
     width: 720,
     height: 450,
-    ...(lcpIndex === 0 ? PICKS_LCP_HINTS : {}),
+    ...(lcpIndex === 0 ? PICKS_LCP_HINTS : { fetchpriority: "low" }),
     sizes: "(max-width: 880px) 100vw, 56vw",
   });
   const heroImgInner =
@@ -262,6 +263,9 @@ function renderLatestSection(cards: ReadonlyArray<HomeArticleCard>): string {
 export function renderHome(args: RenderHomeArgs): string {
   const vm = args.vm;
   const site = vm.site;
+  // The header, Trending and footer render escaped fragments. Give their
+  // generated image tags low priority only where Home includes them.
+  const lowPriorityImg = '<img fetchpriority="low" ';
 
   // §1 — site-header
   const s1 = renderHeader({
@@ -272,7 +276,7 @@ export function renderHome(args: RenderHomeArgs): string {
       hostname: site.hostname,
     },
     nav: args.nav,
-  });
+  }).replaceAll("<img ", lowPriorityImg);
 
   // §2 — hero (sourced from vm.hero; fall back to a site-name hero when
   // the tenant has no published articles yet so the hero slot is never
@@ -318,7 +322,7 @@ export function renderHome(args: RenderHomeArgs): string {
     // thumbnail; renderChipRail falls back to the .ph gradient when null.
     imageUrl: c.imageUrl ?? null,
   }));
-  const s3 = renderChipRail({ chips, label: "Browse by topic" });
+  const s3 = renderChipRail({ chips, label: "Browse by topic", fetchpriority: "low" });
 
   // §4 — featured. Design §12 featured[3], first = hero: the lead story heads
   // the featured grid (also the §2 hero banner), then the next featured cards.
@@ -352,7 +356,7 @@ export function renderHome(args: RenderHomeArgs): string {
       imageAlt: c.imageAlt,
       categoryName: c.categoryName,
     })),
-  });
+  }).replaceAll("<img ", lowPriorityImg);
 
   // §8 — spotlight. Design §12 spotlight items[4]: a soft-background 4-card
   // grid. Prefer the view-model's spotlight bucket (a by-category lens built
@@ -407,7 +411,7 @@ export function renderHome(args: RenderHomeArgs): string {
     links: args.footerLinks,
     legalLinks: args.legalLinks,
     socialLinks: args.socialLinks,
-  });
+  }).replaceAll("<img ", lowPriorityImg);
 
   // §13 — floating "Read next" button (contract §11: fixed 64×64 circle,
   // hidden < 1280px by CSS). Target = the lead story; PART 8: real article

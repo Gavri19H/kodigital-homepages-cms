@@ -13,8 +13,9 @@ const quoteId = (prefix: string) => prefix + "_" + "1".padStart(26, "0");
 
 // Measured 2026-11-25 on 6846c55ee096 under TZ=UTC. Each fixed limit is
 // ceil(measured HTML bytes / 2048) * 2048, independently for raw and Brotli.
+// P4-FX6 re-pinned home at 49,640 raw bytes under TZ=UTC.
 const budgets = [
-  { page: "home",     raw: 49_152,  brotli: 6_144,  path: "/",                              content: ".picks-grid img" },
+  { page: "home",     raw: 51_200,  brotli: 6_144,  path: "/",                              content: ".picks-grid img" },
   { page: "article",  raw: 24_576,  brotli: 6_144,  path: "/article/morning-light-rituals", content: ".article-hero-img img" },
   { page: "category", raw: 18_432,  brotli: 4_096,  path: "/category/wellness",             content: ".home-grid--category .card" },
   { page: "tag",      raw: 16_384,  brotli: 4_096,  path: "/tag/editors-picks",             content: ".home-grid--tag .card" },
@@ -175,6 +176,10 @@ describe("public page weight budgets", () => {
     const doc = parseHtml(html);
     expect(doc.querySelector(budget.content), `populated ${budget.path}`).not.toBeNull();
     if (budget.page === "home") {
+      // Keep the previous raw budget for everything except the new image hints.
+      const priorityBytes = doc.querySelectorAll('img[fetchpriority="low"]').length * Buffer.byteLength(' fetchpriority="low"');
+      expect.soft(raw - priorityBytes, "raw HTML excluding low image priority").toBeLessThanOrEqual(49_152);
+
       // A preload has no element width. Compare the actual transform with
       // its width descriptor, then bound the candidate used on a 375px phone.
       const widths = doc.querySelectorAll('head link[rel="preload"][as="image"]').map(link => {

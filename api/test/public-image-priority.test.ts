@@ -17,6 +17,15 @@ function onlyHighPriorityImage(doc: MiniNode): MiniNode {
   return hints[0]!;
 }
 
+function expectHomeImagePriorities(doc: MiniNode, lcp?: MiniNode): void {
+  const logo = doc.querySelector("header img");
+  for (const img of doc.querySelectorAll("img")) {
+    const src = img.getAttribute("src") ?? "home image";
+    expect(img.getAttribute("fetchpriority"), src).toBe(img === lcp ? "high" : "low");
+    expect(img.getAttribute("loading"), src).toBe(img === lcp || img === logo ? "eager" : "lazy");
+  }
+}
+
 describe("image priority on the public routes", () => {
   let sqlite: SqliteDb;
 
@@ -92,6 +101,22 @@ describe("image priority on the public routes", () => {
     expect(preload.hasAttribute("imagesrcset")).toBe(false);
     expect(doc.querySelector(".hero style")).toBeNull();
     expect(doc.querySelector(".hero-bg")?.getAttribute("style")).toContain(`url(${outside})`);
+    expectHomeImagePriorities(doc);
+  });
+
+  it("gives every home image low priority when the CSS hero is preloaded", async () => {
+    sqlite.prepare("UPDATE articles SET is_featured = 1 WHERE slug IN ('lead', 'second')").run();
+    sqlite.prepare(`INSERT INTO articles
+      (site_id, slug, title, content_json, status, published_at, featured_image_id, is_trending)
+      VALUES ('journal', 'trending', 'Trending', '{}', 'published', 1700000000, 1, 1)`).run();
+    const doc = await visit("/");
+    for (const selector of [
+      "header img", ".cat-chip img", ".featured img", ".picks-hero img", ".story-row img",
+      ".trending-img img", ".grid-4 img", ".home-grid--latest img", "footer img",
+    ]) {
+      expect(doc.querySelector(selector), selector).not.toBeNull();
+    }
+    expectHomeImagePriorities(doc);
   });
 
   it("gives the first pictured Editor's Pick priority on a gradient-only home", async () => {
@@ -103,6 +128,7 @@ describe("image priority on the public routes", () => {
     const pick = onlyHighPriorityImage(doc);
     expect(pick).toBe(doc.querySelector(".picks-grid img"));
     expect(pick.getAttribute("loading")).toBe("eager");
+    expectHomeImagePriorities(doc, pick);
   });
 
   it.each(["/category/guides", "/tag/guides"])("%s prioritizes the first card image", async (path) => {
@@ -111,6 +137,7 @@ describe("image priority on the public routes", () => {
     expect(cards.map((img) => img.getAttribute("alt"))).toEqual(["lead", "second", "third"]);
     expect(onlyHighPriorityImage(doc)).toBe(cards[0]);
     expect(cards.map((img) => img.getAttribute("loading"))).toEqual(["eager", "lazy", "lazy"]);
+    expect(cards.map((img) => img.getAttribute("fetchpriority"))).toEqual(["high", null, null]);
   });
 
   it.each(["/category/guides", "/tag/guides"])("%s keeps later cards lazy when the first card has a placeholder", async (path) => {
@@ -121,6 +148,7 @@ describe("image priority on the public routes", () => {
     expect(images.map((img) => img.getAttribute("alt"))).toEqual(["second", "third"]);
     expect(doc.querySelector('[fetchpriority="high"]')).toBeNull();
     expect(images.map((img) => img.getAttribute("loading"))).toEqual(["lazy", "lazy"]);
+    expect(images.map((img) => img.getAttribute("fetchpriority"))).toEqual([null, null]);
   });
 
   it("gives only the article hero high priority", async () => {

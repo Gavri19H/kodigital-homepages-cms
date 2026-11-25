@@ -427,16 +427,13 @@ describe("public-image-attrs T42 performance re-assert", () => {
       "/media/feature.jpg",
     );
 
-    // fetchpriority="high" is RESERVED for eager (above-fold) images:
-    // a lazy img with fetchpriority would compete with the hero for
-    // early-fetch bandwidth — that is a below-fold regression.
-    for (const img of [...homeImgs, ...articleImgs]) {
-      if (img.loading === "lazy") {
-        expect(
-          img.fetchpriority,
-          `lazy img must not carry fetchpriority: ${img.raw}`,
-        ).toBeNull();
-      }
+    // Lazy home images yield bandwidth to the hero. Lazy article images
+    // keep the browser's default fetch priority.
+    for (const img of homeImgs.filter(isBelowFold)) {
+      expect(img.fetchpriority, img.raw).toBe("low");
+    }
+    for (const img of articleImgs.filter(isBelowFold)) {
+      expect(img.fetchpriority, img.raw).toBeNull();
     }
 
     // Below-fold lazy re-assert: both surfaces render at least one

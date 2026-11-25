@@ -85,6 +85,7 @@ export interface HeroArgs {
 export interface ChipRailArgs {
   chips: ReadonlyArray<CategoryChip>;
   label?: string;
+  fetchpriority?: "low";
 }
 
 export interface CardArgs {
@@ -94,6 +95,7 @@ export interface CardArgs {
   imageUrl?: string | null;
   imageAlt?: string | null;
   priority?: boolean;
+  fetchpriority?: "low";
   publishedAt?: string;
   categoryName?: string;
   readMinutes?: number | null;
@@ -445,7 +447,10 @@ export function renderChipRail(args: ChipRailArgs): string {
       // real bare /media/ <img> instead (no /cdn-cgi transform).
       const inner =
         chip.imageUrl !== undefined && chip.imageUrl !== null && chip.imageUrl.length > 0
-          ? responsiveImg({ src: chip.imageUrl, alt: chip.imageAlt ?? name, width: 48, height: 48, className: "cat-chip-img-photo", loading: "lazy", sizes: "48px" })
+          ? responsiveImg({
+              src: chip.imageUrl, alt: chip.imageAlt ?? name, width: 48, height: 48,
+              className: "cat-chip-img-photo", loading: "lazy", fetchpriority: args.fetchpriority, sizes: "48px",
+            })
           : `<div class="ph" data-label="${escAttr(name)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
       return `<a class="cat-chip" href="${escAttr(href)}"><span class="cat-chip-img">${inner}</span><span class="cat-chip-label">${escText(name)}</span></a>`;
     })
@@ -467,7 +472,7 @@ export function renderCard(args: CardArgs): string {
     width: 640,
     height: 440,
     loading: args.priority ? "eager" : "lazy",
-    fetchpriority: args.priority ? "high" : undefined,
+    fetchpriority: args.priority ? "high" : args.fetchpriority,
     sizes: "(max-width: 560px) 100vw, (max-width: 1080px) 50vw, 25vw",
   });
   const imgInner =
