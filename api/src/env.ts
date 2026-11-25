@@ -18,6 +18,7 @@ export interface Env {
   ADMIN_BASE_URL: string;
   ADMIN_BASE_PATH: string;
   CACHE_API_ENABLED: string;
+  IMAGE_TRANSFORMS?: string;
   EDGE_HEDGE_MS?: string;
   EDGE_INNER?: string;
   HTML_CACHE_TTL_SECONDS: string;
@@ -113,6 +114,13 @@ export interface Env {
   // bound; absent/empty/disallowed references fail closed before fetch. The one
   // declared here backs the seeded (disabled-by-default) facebook row.
   LISTICLE_S2S_TOKEN_FACEBOOK?: string;
+}
+
+// This is a deployment setting shared by every tenant in the Worker.
+export let imageTransformsEnabled = true;
+
+export function configureImageTransforms(value: Env["IMAGE_TRANSFORMS"]): void {
+  imageTransformsEnabled = value !== "off";
 }
 
 // Read a named secret/var off the env by STRING key. Trusted code uses this for

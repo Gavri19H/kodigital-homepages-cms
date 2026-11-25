@@ -1,6 +1,7 @@
 // Public image slots use Cloudflare width candidates up to 2× display size.
 // The largest candidate also serves browsers that use the src fallback.
 
+import { imageTransformsEnabled } from "../../env";
 import { escAttr } from "./esc";
 import { mediaUrl } from "../view-models/media-url";
 
@@ -45,11 +46,10 @@ export function srcsetWidths(displayWidth: number): number[] {
   return [...set].sort((a, b) => a - b);
 }
 
-// Build a Cloudflare image-transformation URL for a same-origin source path.
-// The source path's leading slash is dropped so the result is a clean
-// `/cdn-cgi/image/<options>/<path>` URL.
+// Use the same root-relative source path with or without the transform prefix.
 export function cfTransform(sourcePath: string, options: string): string {
-  return `/cdn-cgi/image/${options}/${sourcePath.replace(/^\/+/, "")}`;
+  const path = "/" + sourcePath.replace(/^\/+/, "");
+  return imageTransformsEnabled ? `/cdn-cgi/image/${options}${path}` : path;
 }
 
 // The blur-up (LQIP) placeholder URL for a same-origin source path.
@@ -77,6 +77,10 @@ export function responsiveSrcAttrs(
     return `src="${escAttr(ref)}"`;
   }
   const path = mediaUrl(ref)!.replace(/\s/g, encodeURIComponent);
+  if (!imageTransformsEnabled) {
+    assertPositiveInt(displayWidth, "width");
+    return `src="${escAttr(path)}"`;
+  }
   const fitOption = fit ? `,fit=${fit}` : "";
   const candidates = srcsetWidths(displayWidth).map((width) => ({
     width,

@@ -40,6 +40,7 @@ run_worker_first = true
 
 [vars]
 APP_ENV = "development"
+IMAGE_TRANSFORMS = "off"
 # Analytics pipeline (POST /api/track -> Kinesis Firehose `homepage-events` ->
 # S3 -> Athena `homepage.events`). AWS_REGION + the stream name are non-sensitive
 # plaintext vars (MUST stay here so CI deploy doesn't wipe them from Dashboard).
@@ -172,6 +173,7 @@ cache = { enabled = true }
 
 [env.staging.vars]
 APP_ENV = "staging"
+IMAGE_TRANSFORMS = "on"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
@@ -240,6 +242,7 @@ cache = { enabled = true }
 
 [env.production.vars]
 APP_ENV = "production"
+IMAGE_TRANSFORMS = "on"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
@@ -367,6 +370,7 @@ cache = { enabled = true }
 
 [env.perfstage.vars]
 APP_ENV = "perfstage"
+IMAGE_TRANSFORMS = "on"
 PERFSTAGE = "true"
 DEV_BYPASS_AUTH = "true"
 ADMIN_ALLOW_IP = ""
