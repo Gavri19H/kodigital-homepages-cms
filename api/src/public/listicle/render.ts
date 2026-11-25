@@ -207,7 +207,7 @@ export function renderSectionHeading(
   return `<div class="lst-heading-wrap">${inner}</div>`;
 }
 
-function renderSectionImage(section: RenderSectionRow): string {
+function renderSectionImage(section: RenderSectionRow, eagerImage = false): string {
   const url = sectionImageUrl(section.image_json);
   if (url === "" || !isSafeUrl(url)) return "";
   const img = responsiveImg({
@@ -215,7 +215,8 @@ function renderSectionImage(section: RenderSectionRow): string {
     alt: section.headline_text,
     width: CONTENT_WIDTH_PX,
     height: SECTION_IMG_HEIGHT_PX,
-    loading: "lazy",
+    loading: eagerImage ? "eager" : "lazy",
+    fetchpriority: eagerImage ? "high" : undefined,
     sizes: "(max-width: 999px) 100vw, 968px",
   });
   if (img === "") return "";
@@ -244,10 +245,11 @@ export function renderSectionCandidateHtml(
   ordinal: number,
   ctx: GovernedUrlContext,
   offerPublicIdByRef: ReadonlyMap<string, string>,
+  opts: { eagerImage?: boolean } = {},
 ): string {
   const parts = [
     renderSectionHeading(section, ordinal),
-    renderSectionImage(section),
+    renderSectionImage(section, opts.eagerImage),
     annotateChoiceGroupColumns(listicleBlocksToHtml(section.content_json)),
   ].join("");
   return rewriteGovernedAnchors(parts, ctx, offerPublicIdByRef);
@@ -423,6 +425,7 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
         ordinal,
         ctx,
         input.offerPublicIdByRef,
+        { eagerImage: page.page_index === 0 },
       );
       const body = layout.renderSection(sectionHtml);
       if (def !== null && cand.public_id === def.public_id) {

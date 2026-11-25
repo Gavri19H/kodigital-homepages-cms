@@ -85,8 +85,14 @@ function listicle(logoUrl = site.logoUrl, avatarUrl = "/media/avatar.jpg"): stri
       byline_json: JSON.stringify({ enabled: true, author_name: "Writer", author_avatar_url: avatarUrl }),
     },
     pages: [{
-      public_id: "pg_1", page_index: 0, selection_mode: "single", ab_test_id: null, rule_set_id: null,
-      candidates: [{ public_id: "cand_1", section_id: 1, is_fallback: 0, rule_public_id: null }],
+      public_id: "pg_1", page_index: 0, selection_mode: "ab_test", ab_test_id: "ab_1", rule_set_id: null,
+      candidates: [
+        { public_id: "cand_1", section_id: 1, is_fallback: 0, rule_public_id: null },
+        { public_id: "cand_alt", section_id: 2, is_fallback: 0, rule_public_id: null },
+      ],
+    }, {
+      public_id: "pg_2", page_index: 1, selection_mode: "single", ab_test_id: null, rule_set_id: null,
+      candidates: [{ public_id: "cand_2", section_id: 2, is_fallback: 0, rule_public_id: null }],
     }],
     sections: new Map([[1, {
       id: 1, public_id: "sec_1", section_name: "Local", headline_text: "Offers", headline_offer_id: null,
@@ -102,6 +108,9 @@ function listicle(logoUrl = site.logoUrl, avatarUrl = "/media/avatar.jpg"): stri
           url: absolute, alt: "Photo 4", width: 300, height: 200, offer_id: "off_1", link_instance_id: "lnk_2",
         } },
       ] }),
+    }], [2, {
+      id: 2, public_id: "sec_2", section_name: "More", headline_text: "More offers", headline_offer_id: null,
+      image_json: JSON.stringify({ url: "/media/section-2.jpg" }), content_json: JSON.stringify({ blocks: [] }),
     }]]),
     offerPublicIdByRef: new Map([["off_1", "off_1"]]),
   }).html;
@@ -122,24 +131,27 @@ function candidates(img: MiniNode) {
 }
 
 const pages = [
-  { name: "home with CSS hero", html: () => homepage(true), count: 10, main: null },
-  { name: "home without CSS hero", html: () => homepage(false), count: 9, main: ".picks-hero img" },
-  { name: "home with an imageless first Pick", html: () => homepage(false, true), count: 8, main: ".story-row img" },
-  { name: "article", html: article, count: 8, main: ".article-hero-img img" },
-  { name: "category", html: () => listing("category"), count: 4, main: ".card-img img" },
-  { name: "tag", html: () => listing("tag"), count: 4, main: ".card-img img" },
-  { name: "listicle", html: listicle, count: 9, main: ".lst-hero img" },
+  { name: "home with CSS hero", html: () => homepage(true), count: 10, main: [] },
+  { name: "home without CSS hero", html: () => homepage(false), count: 9, main: [".picks-hero img"] },
+  { name: "home with an imageless first Pick", html: () => homepage(false, true), count: 8, main: [".story-row img"] },
+  { name: "article", html: article, count: 8, main: [".article-hero-img img"] },
+  { name: "category", html: () => listing("category"), count: 4, main: [".card-img img"] },
+  { name: "tag", html: () => listing("tag"), count: 4, main: [".card-img img"] },
+  { name: "listicle", html: listicle, count: 10, main: [".lst-hero img", '[data-page-index="0"] .lst-img img'] },
 ];
 
 describe("public image markup", () => {
-  it.each(pages)("$name serves sized images and gives the main image first priority", async (page) => {
+  it.each(pages)("$name serves sized images and gives its main images first priority", async (page) => {
     const doc = parseHtml(await page.html());
     const images = doc.querySelectorAll("img");
     expect(images).toHaveLength(page.count);
     const header = doc.querySelector("header img");
     expect(header).not.toBeNull();
-    const main = page.main ? doc.querySelector(page.main) : null;
-    if (page.main) expect(main, page.main).not.toBeNull();
+    const mainImages = page.main.map((selector) => {
+      const img = doc.querySelector(selector);
+      expect(img, selector).not.toBeNull();
+      return img!;
+    });
 
     expect.soft(images.filter((img) => !dimension.test(img.getAttribute("width") ?? "") ||
       !dimension.test(img.getAttribute("height") ?? "")).map(alt), "missing dimensions").toEqual([]);
@@ -159,11 +171,25 @@ describe("public image markup", () => {
       (src(img) !== externalByAlt.get(alt(img)) || img.hasAttribute("srcset"))).map(alt), "absolute URLs").toEqual([]);
 
     const high = images.filter((img) => img.getAttribute("fetchpriority") === "high");
-    expect.soft(high.map((img) => images.indexOf(img)), "high priority image").toEqual(main ? [images.indexOf(main)] : []);
-    if (main) expect.soft(main.getAttribute("loading"), "main image loading").toBe("eager");
+    expect.soft(high.map((img) => images.indexOf(img)), "high priority images").toEqual(mainImages.map((img) => images.indexOf(img)));
+    for (const img of mainImages) expect.soft(img.getAttribute("loading"), "main image loading").toBe("eager");
     expect.soft(header!.getAttribute("loading"), "header logo loading").toBe("eager");
-    expect.soft(images.filter((img) => img !== header && img !== main &&
+    expect.soft(images.filter((img) => img !== header && !mainImages.includes(img) &&
       img.getAttribute("loading") !== "lazy").map(alt), "below-fold loading").toEqual([]);
+  });
+
+  it("prioritizes every first-page section image and keeps the next page lazy", () => {
+    const doc = parseHtml(listicle());
+    const firstPage = doc.querySelector('[data-page-index="0"]')!;
+    const visible = firstPage.querySelector(".lst-cand .lst-img img");
+    const alternate = firstPage.querySelector("template")?.content?.querySelector(".lst-img img");
+    for (const img of [visible, alternate]) {
+      expect.soft(img?.getAttribute("loading")).toBe("eager");
+      expect.soft(img?.getAttribute("fetchpriority")).toBe("high");
+    }
+    const next = doc.querySelector('[data-page-index="1"] .lst-img img');
+    expect.soft(next?.getAttribute("loading")).toBe("lazy");
+    expect.soft(next?.getAttribute("fetchpriority")).toBeNull();
   });
 
   it("fits the measured listicle logo and avatar slots and preserves the saved block dimensions", () => {
