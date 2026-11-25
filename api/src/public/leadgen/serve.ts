@@ -1197,6 +1197,14 @@ function renderFunnelShell(
     '<html lang="en">' +
     "<head>" +
     '<meta charset="utf-8">' +
+    // Shared by the variant's visitors. The browser supplies its own landing
+    // URL and the runtime validates the parsed attempt when it hydrates.
+    `<script>{const vid=${jsStringLiteral(funnelVariantId)};` +
+    'window.__LG_ATTEMPT_P__={vid,p:(async()=>{try{' +
+    'const res=await fetch("/lg/attempt?vid="+encodeURIComponent(vid)+"&u="+encodeURIComponent(location.href),' +
+    '{method:"GET",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});' +
+    'return res.ok?await res.json():null}catch{return null}})()}}</script>' +
+    `<link rel="preload" as="script" href="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js">` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     (displayFont ? `<link rel="preload" as="font" type="font/woff2" crossorigin href="${displayFont}">` : "") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and

@@ -303,9 +303,9 @@ describe("frame-plus-unit-composition — renderLegacyShell reproduces the pinne
     // §4.3-11: the pin now composes the quote's shared-page section too (4 sections, not 3).
     expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(4);
     expect(pinnedBody).toContain(LG_BANNERS_MOUNT_HTML);
-    // the pin's documented ULID placeholders (L is outside the Crockford set)
-    expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}01`);
-    expect(pinAttr("data-funnel-variant-id")).toBe(`lgn_${"L".repeat(24)}02`);
+    // The head kickoff makes the variant the first normalized ID in the pin.
+    expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}02`);
+    expect(pinAttr("data-funnel-variant-id")).toBe(`lgn_${"L".repeat(24)}01`);
     expect(pinAttr("data-quote-id")).toBe(`lgq_${"L".repeat(24)}03`);
   });
 

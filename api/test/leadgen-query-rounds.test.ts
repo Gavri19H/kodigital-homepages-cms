@@ -193,15 +193,15 @@ function digest(body: string) {
   return createHash("sha256").update(body).digest("hex");
 }
 
-// Full response bytes captured with this fixture at 7dfb84fc. Including the
-// public site middleware, the visitor shell took 22 statements / 22 rounds,
-// the edge-selected shell 20 / 20 and the signed attempt (one write) 23 / 23.
-const visitorHtmlHash = "164903892baeb6f6baed72f9f78b8a83bae4ebaa2824001f731c1cd895a58743";
+// Pin the full visitor and edge-selected shells, including the early attempt
+// and runtime preload. At 7dfb84fc the visitor shell took 22 statements / 22
+// rounds, the edge-selected shell 20 / 20 and the signed attempt 23 / 23.
+const visitorHtmlHash = "521e885d4906ebc7fe1e3021cbbf99547fa23972039ea3fb0483bc61fdc0a186";
 it.each([
   { path: "visitor", sha256: visitorHtmlHash, statements: 19, rounds: 8, rules: 1 },
-  { path: "lg:", sha256: "8e665e73cd2b5f588c227a26b13c2a5a2c5fb869d8b002f6cc07ab6872a030a1",
+  { path: "lg:", sha256: "0104079a5d27e63379069629854a9b83bfaa771c4161e4ee09c48ee79fc88c1b",
     statements: 4, rounds: 3, rules: 0 },
-])("serves the original cold $path shell", async ({ path, sha256, statements, rounds, rules }) => {
+])("serves the pinned cold $path shell", async ({ path, sha256, statements, rounds, rules }) => {
   const res = await request(landing, path === "lg:" ? publicId("lgn", 2) : undefined);
   expect(res.status).toBe(200);
   const html = await res.text();

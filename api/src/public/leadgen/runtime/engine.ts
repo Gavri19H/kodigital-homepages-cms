@@ -10,6 +10,7 @@
 //
 // Shell contract consumed (03 §3.2 serve.ts row — a sibling slice renders it):
 //   * <script type="application/json" id="lg-config"> — LeadgenPublicConfig;
+//   * window.__LG_ATTEMPT_P__ — optional first attempt GET started in the head;
 //   * window.__LG_ASSIGNMENT__ — per-request A/B dims (bucket null; the
 //     client recomputes it via the ab-hash.ts §16.2 contract, see
 //     computeAssignmentBucket);
@@ -28,6 +29,7 @@ import {
   LgStateStore,
   scanForRestorableSnapshot,
   storageKeyForAttempt,
+  type LgAnswerEntry,
   type LgBindingTuple,
   type LgComponentConfig,
   type LgConditional,
@@ -273,10 +275,7 @@ export async function computeAssignmentBucket(
   try {
     const data = new TextEncoder().encode(`${abTestId}:${revision}:${sessionId}`);
     const digest = await crypto.subtle.digest("SHA-256", data);
-    const b = new Uint8Array(digest);
-    const word =
-      (((b[0] || 0) << 24) | ((b[1] || 0) << 16) | ((b[2] || 0) << 8) | (b[3] || 0)) >>> 0;
-    return word % 10000;
+    return new DataView(digest).getUint32(0) % 10000;
   } catch {
     return null;
   }
@@ -384,46 +383,48 @@ function sleep(ms: number): Promise<void> {
 // null/undefined distinction here bought nothing) — so __state/__device stay
 // fail-closed.
 function parseAttemptCtx(raw: unknown): { state?: string; device?: string } {
-  const r = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const r = (raw || {}) as Record<string, unknown>;
   const out: { state?: string; device?: string } = {};
-  if (typeof r["state"] === "string" && r["state"] !== "") out.state = r["state"];
-  if (typeof r["device"] === "string" && r["device"] !== "") out.device = r["device"];
+  for (const key of ["state", "device"] as const) {
+    const value = r[key];
+    if (typeof value === "string" && value) out[key] = value;
+  }
   return out;
 }
 
-// Round-4 P3a: tolerant parse of the OPTIONAL page_plan echo. Same-origin,
-// server-authored (never attacker-shaped) — a shallow array/length sanity
-// check is enough; every downstream read (String()/Map keys) degrades
-// harmlessly on a stray malformed field rather than needing a deep guard.
-function parseAttemptPagePlan(raw: unknown): LgPlanWinner[] | null {
-  return Array.isArray(raw) && raw.length > 0 ? (raw as LgPlanWinner[]) : null;
-}
-
-async function fetchAttemptOnce(funnelVariantId: string): Promise<LgAttempt | null> {
+// The shell hands off parsed JSON. Both transports use the same validation.
+async function fetchAttemptOnce(funnelVariantId: string, first = false): Promise<LgAttempt | null> {
   try {
-    const url = `${LG_ATTEMPT_URL}?vid=${encodeURIComponent(funnelVariantId)}&u=${encodeURIComponent(location.href)}`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const raw = (await res.json()) as Record<string, unknown>;
-    if (typeof raw["funnel_attempt_id"] !== "string" || raw["funnel_attempt_id"] === "") return null;
-    const pagePlan = parseAttemptPagePlan(raw["page_plan"]);
+    const shell = window as Window & { __LG_ATTEMPT_P__?: { vid: string; p: Promise<unknown> } };
+    const shared = first && shell.__LG_ATTEMPT_P__;
+    let raw: unknown;
+    if (shared && shared.vid === funnelVariantId) {
+      delete shell.__LG_ATTEMPT_P__;
+      raw = await shared.p;
+    } else {
+      const url = `${LG_ATTEMPT_URL}?vid=${encodeURIComponent(funnelVariantId)}&u=${encodeURIComponent(location.href)}`;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      raw = await res.json();
+    }
+    if (!raw || typeof raw !== "object") return null;
+    const { funnel_attempt_id, signed_config_token, session_id, expires_at, ctx, page_plan, cps, cc } =
+      raw as Partial<LgAttempt>;
+    if (typeof funnel_attempt_id !== "string" || !funnel_attempt_id) return null;
     return {
-      funnel_attempt_id: raw["funnel_attempt_id"],
-      signed_config_token:
-        typeof raw["signed_config_token"] === "string" ? raw["signed_config_token"] : "",
-      ...(typeof raw["session_id"] === "string" && raw["session_id"] !== ""
-        ? { session_id: raw["session_id"] }
-        : {}),
-      ...(typeof raw["expires_at"] === "number" ? { expires_at: raw["expires_at"] } : {}),
-      ctx: parseAttemptCtx(raw["ctx"]),
-      ...(pagePlan !== null ? { page_plan: pagePlan } : {}),
-      ...(Array.isArray(raw["cps"]) ? { cps: raw["cps"] as string[] } : {}),
-      ...(Array.isArray(raw["cc"]) ? { cc: raw["cc"] as string[] } : {}),
+      funnel_attempt_id,
+      signed_config_token: typeof signed_config_token === "string" ? signed_config_token : "",
+      session_id: typeof session_id === "string" && session_id ? session_id : undefined,
+      expires_at: typeof expires_at === "number" ? expires_at : undefined,
+      ctx: parseAttemptCtx(ctx),
+      page_plan: Array.isArray(page_plan) && page_plan.length ? page_plan : undefined,
+      cps: Array.isArray(cps) ? cps : undefined,
+      cc: Array.isArray(cc) ? cc : undefined,
     };
   } catch {
     return null;
@@ -449,9 +450,10 @@ type LgCheckpointResult =
   | { sw: true; k: string; v: string; so: string; cv: number; ar: string; pp: LgPlanWinner[]; r: string; cc?: string[] };
 
 async function fetchAttemptWithRetry(funnelVariantId: string): Promise<LgAttempt | null> {
-  let attempt = await fetchAttemptOnce(funnelVariantId);
-  for (let i = 0; attempt === null && i < ATTEMPT_RETRY_DELAYS_MS.length; i++) {
-    await sleep(ATTEMPT_RETRY_DELAYS_MS[i] || 1000);
+  let attempt = await fetchAttemptOnce(funnelVariantId, true);
+  for (const delay of ATTEMPT_RETRY_DELAYS_MS) {
+    if (attempt !== null) break;
+    await sleep(delay);
     attempt = await fetchAttemptOnce(funnelVariantId);
   }
   return attempt;
@@ -527,6 +529,7 @@ function attrNum(el: Element, name: string, fallback: number): number {
   return Number(el.getAttribute(name) || fallback);
 }
 
+const INPUT_SEL = "[data-lg-input]";
 const ARIA_NOW = "aria-valuenow";
 const SEL_DIAL = ".lg-range-radial-outer";
 
@@ -739,6 +742,11 @@ export class LgEngine {
   private readonly firedImpressions = new Set<string>();
   private readonly debounceTimers: Record<string, unknown> = {};
   private finalized = false;
+  // Only during the one mint: hold attribution and one page action until the
+  // shared await in init has installed the binding and authoritative page.
+  private earlyEvents: Array<() => void> | null = [];
+  private resume?: () => void;
+  private drafts: Array<[string, LgAnswerEntry]> = [];
   // 10C ctx (geo/device) captured from the /lg/attempt echo — merged into the
   // evaluation map by evalAnswers(), never persisted, never sent to /lg/auction.
   private ctx: { state?: string; device?: string } = {};
@@ -746,10 +754,9 @@ export class LgEngine {
   // byte-lean, no object-literal keys). null when the attempt carried no
   // page_plan (legacy funnel — every section counts as its own page,
   // byte-identical to pre-P3a). pageIds[pageIndex] is the page's public_id
-  // (analytics dim); pagesCount === pageIds.length.
+  // (analytics dim); its length is the progress denominator.
   private planMeta: Map<string, [number, string, string]> | null = null;
   private pageIds: string[] = [];
-  private pagesCount = 0;
   // Round-4 P4a (D-2): the server-computed checkpoint-page anchor section ids
   // to POST /lg/ck at. Short field name (`ckpts`) — private class
   // fields compile to a `__publicField` polyfill call per occurrence (esbuild
@@ -792,150 +799,34 @@ export class LgEngine {
     const config = this.config;
     const sessionId = resolveSessionId();
     const pageViewId = ulidLike(Date.now(), randBytes);
-    const tuple: LgBindingTuple = {
-      funnel_variant_id: config.funnel_variant_id,
-      section_order_hash: config.section_order_hash,
-      content_version: config.content_version,
-    };
+    const tuple = this.bindingTuple();
 
     // A/B dims (10 §10.4): the spliced per-request assignment global wins;
     // the cacheable config carries the same variant-scoped values as backup.
     const assignment = (window as unknown as { __LG_ASSIGNMENT__?: LgAssignmentGlobal })
       .__LG_ASSIGNMENT__;
-    const abTestId = assignment?.funnel_ab_test_id ?? config.funnel_ab_test_id;
-    const abRevision = assignment?.funnel_ab_test_revision ?? config.funnel_ab_test_revision;
-    const variantLabel = assignment?.variant_label ?? config.variant_label;
-    const assignmentReason = assignment?.assignment_reason ?? config.assignment_reason;
+    const assigned = <K extends "funnel_ab_test_id" | "funnel_ab_test_revision" | "variant_label" | "assignment_reason">(key: K) =>
+      assignment?.[key] ?? config[key];
+    const abTestId = assigned("funnel_ab_test_id");
+    const abRevision = assigned("funnel_ab_test_revision");
+    const { href, search } = location;
 
-    this.beacons.setEnvelope({
-      session_id: sessionId,
-      page_view_id: pageViewId,
-      quote_id: config.quote_id,
-      funnel_id: config.funnel_id,
-      funnel_variant_id: config.funnel_variant_id,
-      funnel_ab_test_id: abTestId,
-      funnel_ab_test_revision: abRevision,
-      variant_label: variantLabel,
-      assignment_reason: assignmentReason,
-      section_order_hash: config.section_order_hash,
-      url: location.href,
-      referer: document.referrer,
-      language: typeof navigator !== "undefined" ? navigator.language || "" : "",
-      ...acquisitionParams(location.search),
-    });
+    // Start both asynchronous reads now. Neither is needed to bind an input.
+    const mint: LgAttempt | Promise<LgAttempt | null> = this.preview
+      ? { funnel_attempt_id: `att_preview_${ulidLike(Date.now(), randBytes)}`, signed_config_token: "", ctx: {} }
+      : fetchAttemptWithRetry(config.funnel_variant_id);
+    const bucket = abTestId ? computeAssignmentBucket(abTestId, abRevision, sessionId) : null;
+    const { store, root, beacons } = this;
+    const { state } = store;
+    const start = this.normalizeSectionIndex(this.si);
+    store.setSectionIndex(start);
 
-    // §16.2 bucket recompute BEFORE the first beacon so every event carries
-    // it (ab_hash path only; single_control has no bucket).
-    if (abTestId !== "") {
-      const bucket = await computeAssignmentBucket(abTestId, abRevision, sessionId);
-      if (bucket !== null) this.beacons.setEnvelope({ assignment_bucket: String(bucket) });
-    }
-
-    // /lg/attempt (skipped in preview: the Studio iframe has no tenant
-    // origin; the auction is disabled there anyway — 09 §9.1).
-    let attemptFailed = false;
-    let attempt: LgAttempt | null = null;
-    if (this.preview) {
-      attempt = {
-        funnel_attempt_id: `att_preview_${ulidLike(Date.now(), randBytes)}`,
-        signed_config_token: "",
-        ctx: {},
-      };
-    } else {
-      attempt = await fetchAttemptWithRetry(config.funnel_variant_id);
-      if (attempt === null) attemptFailed = true;
-    }
-
-    // m2 (cookie-blocked visitors): the server ECHOES the session id it bound
-    // into the signed tuple (minted server-side when no ko_sid cookie rode
-    // the attempt request). Adopt it — /lg/auction must post EXACTLY the
-    // bound value or the v2 session binding rejects — and keep the beacon
-    // envelope on the same id for attribution consistency.
-    const boundSessionId =
-      attempt && attempt.session_id !== undefined && attempt.session_id !== ""
-        ? attempt.session_id
-        : sessionId;
-    this.store.bindIdentity({
-      session_id: boundSessionId,
-      page_view_id: pageViewId,
-      funnel_attempt_id: (attempt && attempt.funnel_attempt_id) || "",
-      signed_config_token: (attempt && attempt.signed_config_token) || "",
-      tuple,
-    });
-    if (attempt !== null) {
-      this.beacons.setEnvelope({
-        funnel_attempt_id: attempt.funnel_attempt_id,
-        ...(boundSessionId !== sessionId ? { session_id: boundSessionId } : {}),
-      });
-      // 10C: adopt the server ctx echo (geo/device) for __state/__device rules.
-      this.ctx = attempt.ctx;
-      // Round-4 P3a: build the page-plan lookup ONCE from the flat winners
-      // list (page_id first-seen order == page order, matching resolver.ts's
-      // own page.position ordering). P4a reuses applyPlan on a checkpoint switch.
-      if (attempt.page_plan !== undefined) this.applyPlan(attempt.page_plan);
-      // Round-4 P4a: the checkpoint pages to POST at (empty for a non-routing
-      // funnel → the /lg/ck leg never fires, byte-neutral behavior).
-      if (Array.isArray(attempt.cps)) this.ckpts = attempt.cps;
-      // Round-4 P4a-adj: mint-time CTA verdict (entry-known conditions only).
-      if (Array.isArray(attempt.cc)) this.applyCtaVerdict(attempt.cc);
-    }
-
-    // §3.5.1 restore iff same attempt-binding tuple (see state.ts header for
-    // the cross-reload key mechanics). Skipped in preview (fresh every time).
-    if (!this.preview && attempt !== null) {
-      const storage = sessionStorageAdapter();
-      const hit = scanForRestorableSnapshot(storage, tuple);
-      if (hit !== null) {
-        this.store.adoptSnapshot(hit.snapshot);
-        if (hit.key !== storageKeyForAttempt(attempt.funnel_attempt_id)) {
-          storage.remove(hit.key); // re-key the state under the new attempt id
-        }
-        this.persist();
-      }
-    }
-
-    // Bind interaction, wire maps (E6: injects the Places SDK itself when the
-    // shell spliced __LG_MAPS_KEY__ and a [data-lg-maps] field exists — then
-    // re-runs the field wiring on ready), render the current step.
     this.bindListeners();
-    wireMapsFields(this.root, {
-      // P8 B1: maps.ts no longer hands the engine a field NAME to write into
-      // the store behind the visitor's back (that path is deleted — it stamped
-      // answers no box ever showed). A resolved place fills the VISIBLE input
-      // and dispatches the real `change` the delegated listener below already
-      // owns, so the answer is recorded by handleInputEvent off the DOM: the
-      // question, the owning section (2026-07-20 coordinator ruling: the
-      // section that OWNS the edited field, not the page anchor) and the value
-      // all come from the element the visitor is looking at. Beacons are the
-      // only hook left.
-      emit: (type, fields) => {
-        this.beacons.enqueue(type, { ...this.sectionDims(this.currentSection()), ...fields });
-      },
-    });
-
-    // Land on a VISIBLE section (the restored pointer may now be hidden).
-    // section_view for it fires AFTER quote_view below (§3.5.1 ordering).
-    const startIndex = this.normalizeSectionIndex(this.si);
-    this.store.setSectionIndex(startIndex);
-    this.enterPage(null, /*fireView*/ false);
-
-    // Hydration complete (§3.5.1): the anti-false-PASS suite keys on this.
-    this.root.setAttribute("data-lg-ready", "1");
-
-    // Funnel-entry beacons FIRST (§3.5.1 ordering): quote_view + the visible
-    // section's section_view precede any replayed pre-hydration click, so a
-    // replayed answer_click always sequences AFTER the view events.
-    this.beacons.enqueue("quote_view", this.sectionDims(this.currentSection()));
-    this.fireSectionView(this.currentSection(), null);
-
-    // Replay clicks queued by the inline stub BEFORE hydration.
+    wireMapsFields(root, { emit: (type, fields) => this.enqueue(type, this.currentSection(), fields) });
+    this.enterPage(null, false);
+    root.setAttribute("data-lg-ready", "1");
+    this.exposeEngine();
     this.replayPrehydrateQueue();
-
-    if (attemptFailed) {
-      // §3.5.8: never a blank page; the server HTML is already interactive,
-      // the notice explains the degraded step. Beacons continue regardless.
-      render.showRuntimeNotice(this.currentSectionEl() || this.root, FRIENDLY_ERROR);
-    }
 
     // Final flush on page exit (sendBeacon path).
     try {
@@ -947,10 +838,122 @@ export class LgEngine {
       /* listeners best-effort */
     }
 
-    this.exposeEngine();
+    const [attempt, assignmentBucket] = await Promise.all([mint, bucket]);
+    const events = this.earlyEvents;
+    this.earlyEvents = null;
+    const boundSession = (attempt && attempt.session_id) || sessionId;
+    const attemptId = (attempt && attempt.funnel_attempt_id) || "";
+    const identity = { session_id: boundSession, page_view_id: pageViewId, funnel_attempt_id: attemptId };
+    store.bindIdentity({
+      ...identity,
+      signed_config_token: (attempt && attempt.signed_config_token) || "",
+      tuple,
+    });
+    beacons.setEnvelope({
+      ...identity,
+      quote_id: config.quote_id,
+      funnel_id: config.funnel_id,
+      funnel_variant_id: config.funnel_variant_id,
+      section_order_hash: config.section_order_hash,
+      funnel_ab_test_id: abTestId,
+      funnel_ab_test_revision: abRevision,
+      variant_label: assigned("variant_label"),
+      assignment_reason: assigned("assignment_reason"),
+      url: href,
+      referer: document.referrer,
+      language: typeof navigator !== "undefined" ? navigator.language || "" : "",
+      ...acquisitionParams(search),
+      assignment_bucket: assignmentBucket === null ? "" : String(assignmentBucket),
+    });
+    if (attempt) {
+      this.ctx = attempt.ctx;
+      if (attempt.page_plan) this.applyPlan(attempt.page_plan);
+      if (attempt.cps) this.ckpts = attempt.cps;
+      if (attempt.cc) this.applyCtaVerdict(attempt.cc);
+    }
+
+    const edits = Object.entries(state.answers).filter(([, entry]) => entry.answer_source !== "default_applied");
+    state.answers = {};
+    const storage = sessionStorageAdapter();
+    const hit = attempt && !this.preview && scanForRestorableSnapshot(storage, tuple);
+    if (hit) {
+      store.adoptSnapshot(hit.snapshot);
+      if (hit.key !== storageKeyForAttempt(attemptId)) storage.remove(hit.key);
+    } else store.setSectionIndex(0);
+
+    // Reapply first-page defaults against the restored state. A provisional
+    // default on a losing slot never enters the binding or its analytics.
+    const first = config.sections[start];
+    if (edits.length && first && this.si === start && this.visibleIndexes().includes(start)) {
+      this.applySectionDefaults(first);
+    }
+    this.drafts = edits;
+    this.applyDrafts(true);
+
+    store.setSectionIndex(this.normalizeSectionIndex(this.si));
+    this.enterPage(null, false, this.si !== start);
+    if (hit || edits.length) this.persist();
+    beacons.enqueue("quote_view", this.sectionDims(this.currentSection()));
+    this.fireSectionView(this.currentSection(), null);
+    // The views precede early input events, which in turn precede navigation.
+    if (events) for (const emit of events) emit();
+    const go = this.resume;
+    this.resume = undefined;
+    if (go) go();
+    if (!attempt) render.showRuntimeNotice(this.currentSectionEl() || root, FRIENDLY_ERROR);
+  }
+
+  // Defer attribution, including the Meta hook, until the session, bucket and
+  // slot dimensions are known. Capture the section the visitor interacted with.
+  private enqueue(type: string, section: LgSectionConfig | null, fields?: Record<string, unknown>): void {
+    const emit = (): void => {
+      this.beacons.enqueue(type, { ...this.sectionDims(section), ...fields });
+    };
+    if (this.earlyEvents) this.earlyEvents.push(emit);
+    else emit();
+  }
+
+  // The flat shell lists all candidates. Only the attempt tells us which
+  // sections share a page, which slots won, and where a checkpoint is due.
+  // Retain one navigation intent and revalidate it on its original section.
+  private waitForPlan(section: LgSectionConfig | null, go: () => void): boolean {
+    if (!this.earlyEvents) return false;
+    this.resume = () => { if (this.currentSection() === section) go(); };
+    return true;
+  }
+
+  // An edit to a losing candidate stays in memory. Its answer is eligible
+  // only if a later checkpoint actually selects that section. At mint, edits
+  // win over a snapshot. After a switch, keep any newer visitor answer.
+  private applyDrafts(initial: boolean): void {
+    const { answers } = this.store.state;
+    const updates: typeof this.drafts = [];
+    const drafts = this.drafts;
+    this.drafts = [];
+    for (const pair of drafts) {
+      const [field, entry] = pair;
+      if (this.planMeta && !this.planMeta.has(entry.section_public_id)) {
+        this.drafts.push(pair);
+        continue;
+      }
+      const saved = answers[field];
+      if (initial || !saved || saved.answer_source === "default_applied" || saved.answered_at < entry.answered_at) {
+        if (this.config.vehicle && (!saved || String(saved.value) !== String(entry.value))) {
+          this.clearVehicleDependents(field);
+        }
+        updates.push(pair);
+      }
+    }
+    // Invalidate saved vehicle dependents before overlaying any new answers.
+    for (const [field, entry] of updates) answers[field] = entry;
   }
 
   // ----- config/derived helpers -------------------------------------------
+
+  private bindingTuple(): LgBindingTuple {
+    const { funnel_variant_id, section_order_hash, content_version } = this.config;
+    return { funnel_variant_id, section_order_hash, content_version };
+  }
 
   // The current step pointer — one read-alias for the store's section index
   // (read in ~6 places; the writer stays store.setSectionIndex).
@@ -986,6 +989,13 @@ export class LgEngine {
     return this.config.sections[Number.isNaN(index) ? -1 : index] || this.currentSection();
   }
 
+  private questionAt(target: Element) {
+    const questionEl = target.closest(render.QUESTION_SEL);
+    const questionId = (questionEl && questionEl.getAttribute("data-lg-question")) || "";
+    const section = this.sectionConfigFor(target);
+    return { questionEl, questionId, section, component: this.componentByQuestionId(section, questionId) };
+  }
+
   private sectionDims(section: LgSectionConfig | null): Record<string, unknown> {
     if (section === null) return {};
     // Round-4 P3a: page_id/slot_id/slot_assignment_reason ride alongside the
@@ -1003,16 +1013,6 @@ export class LgEngine {
         : {}),
     };
   }
-
-  // Round-4 P4a (D-2): post-switch beacon re-stamping (§16.3 attribution;
-  // "completion belongs to the variant serving the last page" applies to the
-  // full client event stream, not just the final auction call) uses the
-  // EXISTING LgBeaconClient.setEnvelope (events.ts) — its own docstring is
-  // written for exactly this: "Engine updates identity dims as they resolve
-  // ... subsequent events carry the newest values." maybeSwitch calls it ONCE
-  // on a switch; every call site below is UNCHANGED (`this.beacons.enqueue`),
-  // so every subsequent event automatically merges the new funnel_variant_id/
-  // assignment_reason/routed_from_variant — no per-call-site wrapper needed.
 
   private componentByQuestionId(
     section: LgSectionConfig | null,
@@ -1081,25 +1081,21 @@ export class LgEngine {
   // counted, never auction-projected. planMeta null (legacy funnel /
   // attempt-fetch failure) -> no filter, byte-identical to pre-P3a.
   private visibleIndexes(): number[] {
-    const all = visibleSectionIndexes(this.config.sections, this.evalAnswers());
+    const { sections } = this.config;
+    const all = visibleSectionIndexes(sections, this.evalAnswers());
     const meta = this.planMeta;
-    if (meta === null) return all;
-    return all.filter((i) => {
-      const id = this.config.sections[i]?.section_public_id;
-      return id !== undefined && meta.has(id);
-    });
+    // visibleSectionIndexes returns only indexes of existing sections.
+    return meta ? all.filter((i) => meta.has(sections[i]!.section_public_id)) : all;
   }
 
   private normalizeSectionIndex(wanted: number): number {
     const visible = this.visibleIndexes();
-    if (visible.length === 0) return 0;
-    if (visible.indexOf(wanted) !== -1) return wanted;
     for (const index of visible) if (index >= wanted) return index;
     return visible[visible.length - 1] || 0;
   }
 
   private persist(): void {
-    if (this.preview) return; // preview never persists (fresh per srcdoc)
+    if (this.preview || this.earlyEvents) return;
     this.store.persist(this.hiddenFields());
   }
 
@@ -1129,7 +1125,7 @@ export class LgEngine {
       // "Go to next" Section (presets.ts vehicleTextInput) — same path.
       const cont = target.closest("[data-lg-continue],[data-lg-vgo]");
       if (cont !== null) {
-        this.handleContinue();
+        this.handleContinue(cont);
         return;
       }
       const back = target.closest("[data-lg-back]");
@@ -1143,7 +1139,7 @@ export class LgEngine {
       if (!(target instanceof Element)) return;
       // Searchable dropdown: the search box narrows its list (vehicle.ts).
       if (target.hasAttribute("data-lg-dropdown-search")) return lgSearch(target as HTMLInputElement);
-      if (target.closest("[data-lg-input]") === null) return;
+      if (target.closest(INPUT_SEL) === null) return;
       // FIX-FIRST-2 (N-1): the ONE place the two dispatches differ. `input` =
       // mid-keystroke (syncDualRange must not rewrite the box under the caret);
       // `change` = the commit (blur/Enter) where it must. Cleared straight after
@@ -1164,13 +1160,9 @@ export class LgEngine {
     this.root.addEventListener("keydown", (raw) => {
       const ev = raw as { target?: unknown; key?: string; preventDefault?: () => void };
       if (ev.key !== "Backspace" || !(ev.target instanceof Element)) return;
-      const input = ev.target.closest("[data-lg-input]");
+      const input = ev.target.closest(INPUT_SEL);
       if (input === null || !(input instanceof HTMLInputElement)) return;
-      const component = this.componentByQuestionId(
-        this.sectionConfigFor(input),
-        input.closest(render.QUESTION_SEL)?.getAttribute("data-lg-question") ?? "",
-      );
-      const mask = phoneMask(component);
+      const mask = phoneMask(this.questionAt(input).component);
       if (mask === null) return;
       if (ev.preventDefault !== undefined) ev.preventDefault();
       input.value = fillMaskScaffold(mask.scaffold, input.value.replace(/\D/g, "").slice(0, -1)).text;
@@ -1267,7 +1259,7 @@ export class LgEngine {
       if (el === null) continue;
       const choice = el.closest("[data-lg-choice]");
       if (choice !== null) this.handleChoiceActivation(choice);
-      else if (el.closest("[data-lg-continue]") !== null) this.handleContinue();
+      else if (el.closest("[data-lg-continue]") !== null) this.handleContinue(el);
       else if (el.closest("[data-lg-other-trigger]") !== null) render.openOtherPanel(el);
     }
   }
@@ -1348,12 +1340,18 @@ export class LgEngine {
     // snapshot, no links between them (the headline names still apply).
     const changed = !!v && "" + (prev && prev.value) !== "" + value;
     if (v && asks === "make") store.recordUserAnswer(field + "_snapshot", v.snapshot, meta);
-    if (changed) for (const d of vehicleQs(this.root, field)) delete store.state.answers[d.getAttribute("data-lg-field") || ""];
+    if (changed) this.clearVehicleDependents(field);
     void Promise.resolve().then(() => {
       if (changed) this.vScan(this.root, field);
       this.vNames();
     });
     return value;
+  }
+
+  private clearVehicleDependents(field: string): void {
+    for (const question of vehicleQs(this.root, field)) {
+      delete this.store.state.answers[question.getAttribute("data-lg-field") || ""];
+    }
   }
 
   private vNames(): void {
@@ -1373,10 +1371,7 @@ export class LgEngine {
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
-    const questionEl = choiceEl.closest(render.QUESTION_SEL);
-    const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
-    const section = this.sectionConfigFor(choiceEl);
-    const component = this.componentByQuestionId(section, questionId);
+    const { questionEl, questionId, section, component } = this.questionAt(choiceEl);
     const internalField =
       component?.internal_field ??
       choiceEl.closest("[data-lg-field]")?.getAttribute("data-lg-field") ??
@@ -1448,8 +1443,7 @@ export class LgEngine {
     }
     this.afterAnswerMutation();
 
-    this.beacons.enqueue("answer_click", {
-      ...this.sectionDims(section),
+    this.enqueue("answer_click", section, {
       question_id: questionId,
       question_key: component?.question_key ?? "",
       internal_field: internalField,
@@ -1482,7 +1476,7 @@ export class LgEngine {
           (c.internal_field || "") !== "" && deps.components[i]?.visible === true,
       );
       if (interactive.length === 1 && this.sectionPassesAt(this.config.sections.indexOf(section), section)) {
-        this.advance();
+        if (!this.waitForPlan(section, () => this.autoGo(section))) this.advance();
       }
     }
   }
@@ -1513,7 +1507,7 @@ export class LgEngine {
   // path so the value records + the value text/fill + aria-valuenow update
   // exactly like a drag. data-lg-step = "dec" | "inc".
   private handleStepper(stepEl: Element): void {
-    const input = stepEl.closest(render.QUESTION_SEL)?.querySelector("[data-lg-input]");
+    const input = stepEl.closest(render.QUESTION_SEL)?.querySelector(INPUT_SEL);
     if (!(input instanceof HTMLInputElement)) return;
     const step = attrNum(input, "step", 1) || 1;
     const min = attrNum(input, "min", 0);
@@ -1536,19 +1530,24 @@ export class LgEngine {
       const i = this.config.sections.findIndex((s) => s.section_public_id === sectionId);
       return i === -1 ? [] : [i];
     }
-    const page = meta.get(sectionId)?.[0];
-    if (page === undefined) return [];
+    const anchor = meta.get(sectionId);
+    if (!anchor) return [];
     const out: number[] = [];
-    for (let i = 0; i < this.config.sections.length; i++) {
-      const id = this.config.sections[i]?.section_public_id;
-      if (id !== undefined && meta.get(id)?.[0] === page) out.push(i);
-    }
+    this.config.sections.forEach((section, index) => {
+      const slot = meta.get(section.section_public_id);
+      if (slot && slot[0] === anchor[0]) out.push(index);
+    });
     return out;
   }
 
   private currentPageIndices(): number[] {
     const indices = this.pageIndicesFor(this.currentSection()?.section_public_id ?? "");
     return indices.length > 0 ? indices : [this.si];
+  }
+
+  private visiblePageIndices(): number[] {
+    const visible = this.visibleIndexes();
+    return this.currentPageIndices().filter((i) => visible.includes(i));
   }
 
   // Round-4 P4a (D-2): (re)build the page-plan lookup from a flat winners list
@@ -1563,7 +1562,6 @@ export class LgEngine {
     }
     this.planMeta = meta;
     this.pageIds = ids;
-    this.pagesCount = ids.length;
   }
 
   // Round-4 P4a-adj (P5a runtime seam #1, CTA visibility): trivial APPLIER —
@@ -1649,7 +1647,7 @@ export class LgEngine {
     // newest values") with the TARGET funnel_variant_id + its routing
     // assignment_reason + the ORIGIN id (`ov`, captured above) — every event
     // from here on (continue_click, section_view, quote_complete, …)
-    // automatically carries it via the UNCHANGED beacons.enqueue call sites
+    // automatically carries it via the beacon client's envelope
     // (§16.3 "completion belongs to the variant serving the last page"
     // applies to the full client event stream). `routed_from_variant` is NOT
     // part of events.ts's OWN LgEnvelopeBase (not this leg's file to extend)
@@ -1669,6 +1667,7 @@ export class LgEngine {
     cfg.content_version = out.cv;
     st.signed_config_token = out.k;
     this.applyPlan(out.pp);
+    this.applyDrafts(false);
     this.ckpts = []; // ≤1-hop: no further checkpoint is ever evaluated after a switch
     if (out.r === "") {
       void this.finalize();
@@ -1684,12 +1683,9 @@ export class LgEngine {
   }
 
   private handleInputEvent(target: Element): void {
-    const input = target.closest("[data-lg-input]") || target;
+    const input = target.closest(INPUT_SEL) || target;
     const fieldEl = input.closest("[data-lg-field]");
-    const questionEl = input.closest(render.QUESTION_SEL);
-    const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
-    const section = this.sectionConfigFor(input);
-    const component = this.componentByQuestionId(section, questionId);
+    const { questionEl, questionId, section, component } = this.questionAt(input);
     let internalField =
       fieldEl?.getAttribute("data-lg-field") ?? component?.internal_field ?? "";
     // PC-A2 (P4b): NameFieldsGroup carries no single internal_field, so its two
@@ -1802,8 +1798,7 @@ export class LgEngine {
     }
     this.debounceTimers[internalField] = setTimeout(() => {
       this.debounceTimers[internalField] = null;
-      this.beacons.enqueue("answer_change", {
-        ...this.sectionDims(section),
+      this.enqueue("answer_change", section, {
         question_id: questionId,
         question_key: component?.question_key ?? "",
         internal_field: internalField,
@@ -1832,20 +1827,11 @@ export class LgEngine {
 
     const seen = new Set<string>();
     for (const failure of failures) {
-      if (sectionEl !== null && !seen.has(failure.internal_field)) {
-        render.setFieldError(sectionEl, failure.internal_field, failure.message);
-      }
-      if (!seen.has(failure.internal_field)) {
-        seen.add(failure.internal_field);
-        // One validation_error per failing field (§3.5.4); the rule code
-        // rides answer_value_normalized (not an issue-31 reason column).
-        this.beacons.enqueue("validation_error", {
-          ...this.sectionDims(section),
-          question_id: failure.question_id,
-          internal_field: failure.internal_field,
-          answer_value_normalized: failure.code,
-        });
-      }
+      const { internal_field, question_id, message, code } = failure;
+      if (seen.has(internal_field)) continue;
+      seen.add(internal_field);
+      if (sectionEl) render.setFieldError(sectionEl, internal_field, message);
+      this.enqueue("validation_error", section, { question_id, internal_field, answer_value_normalized: code });
     }
     return false;
   }
@@ -1856,17 +1842,19 @@ export class LgEngine {
   // the length-1 case, byte-identical to pre-amendment). Every section's
   // errors paint (no early return), so the visitor sees every outstanding
   // field across the page in one pass, not one section at a time.
-  private handleContinue(): void {
-    const visible = this.visibleIndexes();
-    const visibleInPage = this.currentPageIndices().filter((i) => visible.indexOf(i) !== -1);
-    this.beacons.enqueue("continue_click", this.sectionDims(this.currentSection()));
+  private handleContinue(button: Element, replay = false): void {
+    const section = this.currentSection();
+    if (!replay) this.enqueue("continue_click", section);
     let allPass = true;
-    for (const i of visibleInPage) {
+    for (const i of this.visiblePageIndices()) {
       const section = this.config.sections[i];
       if (section === undefined) continue;
       if (!this.sectionPassesAt(i, section)) allPass = false;
     }
-    if (!allPass) return;
+    if (!allPass || this.waitForPlan(section, () => {
+      // A newly revealed sibling can own Continue now, or ctx can hide it.
+      if (!button.closest("[hidden]")) this.handleContinue(button, true);
+    })) return;
     // Round-4 P4a (D-2): a routing-enabled funnel (checkpoint pages present)
     // routes the page-complete through the /lg/ck evaluation first
     // (it owns its own advance() fallback on any non-switch); every OTHER
@@ -1887,6 +1875,7 @@ export class LgEngine {
   }
 
   private handleBack(): void {
+    if (this.waitForPlan(this.currentSection(), () => this.handleBack())) return;
     const previous = this.store.popBack();
     if (previous === undefined) {
       // §11.2: empty back stack + same-origin referrer → browser history.
@@ -1913,8 +1902,7 @@ export class LgEngine {
   private advance(): void {
     const section = this.currentSection();
     const current = this.si;
-    this.beacons.enqueue("section_continue", {
-      ...this.sectionDims(section),
+    this.enqueue("section_continue", section, {
       continued_to_next_section: true,
     });
 
@@ -1942,9 +1930,8 @@ export class LgEngine {
   // behavior. Applies defaults, shows the sections, progress/back/focus
   // (focus the FIRST shown section), section_view per shown section
   // (nav="back" on back-nav).
-  private enterPage(nav: "back" | null, fireView = true): void {
-    const visible = this.visibleIndexes();
-    const visibleInPage = this.currentPageIndices().filter((i) => visible.indexOf(i) !== -1);
+  private enterPage(nav: "back" | null, fireView = true, focus = true): void {
+    const visibleInPage = this.visiblePageIndices();
 
     for (const i of visibleInPage) {
       const section = this.config.sections[i];
@@ -1979,12 +1966,13 @@ export class LgEngine {
         // "215"). Legacy phones (no mask) fall through unchanged (L-192).
         const mask = phoneMask(component);
         if (mask !== null) {
-          const inputEl = questionEl.querySelector("[data-lg-input]");
+          const inputEl = questionEl.querySelector(INPUT_SEL);
           if (inputEl instanceof HTMLInputElement) {
-            inputEl.value = fillMaskScaffold(
+            const filled = fillMaskScaffold(
               mask.scaffold,
               String(entry?.value ?? "").replace(/\D/g, ""),
             ).text;
+            if (inputEl.value !== filled) inputEl.value = filled;
           }
         }
         // E1-NEW-4 (register §E.2): paint the selected state for ANY answered
@@ -2012,7 +2000,7 @@ export class LgEngine {
       this.root,
       this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
     );
-    if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
+    if (focus && shownEls[0] !== undefined) render.focusSection(shownEls[0]);
     // F18: {make}/{year} in the headlines (vehicle.ts vehicleNames).
     this.vNames();
     this.updateProgressUi();
@@ -2022,10 +2010,7 @@ export class LgEngine {
   }
 
   private fireSectionView(section: LgSectionConfig | null, nav: "back" | null): void {
-    this.beacons.enqueue("section_view", {
-      ...this.sectionDims(section),
-      ...(nav === "back" ? { nav: "back" } : {}),
-    });
+    this.enqueue("section_view", section, nav ? { nav } : undefined);
   }
 
   // §3.4: on section entry any default_answer is applied ONCE as
@@ -2038,9 +2023,8 @@ export class LgEngine {
         question_id: component.question_id,
         section_public_id: section.section_public_id,
       });
-      if (write !== null) {
-        this.beacons.enqueue("answer_default_applied", {
-          ...this.sectionDims(section),
+      if (write !== null && !this.earlyEvents) {
+        this.enqueue("answer_default_applied", section, {
           question_id: component.question_id,
           question_key: component.question_key ?? "",
           internal_field: field,
@@ -2066,7 +2050,7 @@ export class LgEngine {
     // a 3-link chain).
     const meta = this.planMeta !== null && section !== null ? this.planMeta.get(section.section_public_id) : undefined;
     const page = meta !== undefined ? meta[0] : undefined;
-    const total = page !== undefined ? this.pagesCount : visible.length;
+    const total = page !== undefined ? this.pageIds.length : visible.length;
     const current = page !== undefined ? page + 1 : pos === -1 ? 1 : pos + 1;
     render.updateProgress(this.root, current, total);
     // 11 §11.3 footer show_on: first = the first VISIBLE section/page (pos -1
@@ -2090,16 +2074,15 @@ export class LgEngine {
     // re-issued token binds it; the server re-validates + re-derives from THERE,
     // never the client echo) and the origin variant before one — byte-identical
     // to pre-P4a on the no-switch path.
+    const { state } = this.store;
     return {
-      funnel_attempt_id: this.store.state.funnel_attempt_id,
-      signed_config_token: this.store.state.signed_config_token,
-      funnel_variant_id: this.config.funnel_variant_id,
-      content_version: this.config.content_version,
-      section_order_hash: this.config.section_order_hash,
+      ...this.bindingTuple(),
+      funnel_attempt_id: state.funnel_attempt_id,
+      signed_config_token: state.signed_config_token,
       answers: this.store.auctionAnswers(hidden),
       answer_mapping_versions: versions,
-      session_id: this.store.state.session_id,
-      page_view_id: this.store.state.page_view_id,
+      session_id: state.session_id,
+      page_view_id: state.page_view_id,
     };
   }
 
@@ -2130,7 +2113,9 @@ export class LgEngine {
     }
 
     const request = this.buildAuctionRequest();
-    let outcome = await postAuction(request);
+    // A failed mint has already shown the inline notice. A later submit
+    // takes the existing HTTP-error exit without posting an unbound lead.
+    let outcome = request.funnel_attempt_id ? await postAuction(request) : { ok: false, kind: "http" } as const;
     for (
       let i = 0;
       !outcome.ok && (outcome.kind === "network" || outcome.kind === "malformed") &&
@@ -2206,24 +2191,25 @@ export class LgEngine {
   // ----- test surface (§3.2 engine row) ------------------------------------
 
   private exposeEngine(): void {
-    const engine = this;
+    const { store, beacons } = this;
+    const { state } = store;
     (window as unknown as { __LG_ENGINE__?: unknown }).__LG_ENGINE__ = {
       version: LG_ENGINE_VERSION,
       preview: this.preview,
       getState: () => ({
-        session_id: engine.store.state.session_id,
-        page_view_id: engine.store.state.page_view_id,
-        funnel_attempt_id: engine.store.state.funnel_attempt_id,
-        section_index: engine.si,
-        back_stack: [...engine.store.state.back_stack],
-        auction: { ...engine.store.state.auction },
+        session_id: state.session_id,
+        page_view_id: state.page_view_id,
+        funnel_attempt_id: state.funnel_attempt_id,
+        section_index: state.section_index,
+        back_stack: [...state.back_stack],
+        auction: { ...state.auction },
       }),
-      getAnswers: () => engine.store.answerValues(),
+      getAnswers: () => store.answerValues(),
       getBeaconStats: () => ({
-        sentBatches: engine.beacons.sentBatches,
-        sentEvents: engine.beacons.sentEvents,
-        droppedEvents: engine.beacons.droppedEvents,
-        pending: engine.beacons.pendingCount(),
+        sentBatches: beacons.sentBatches,
+        sentEvents: beacons.sentEvents,
+        droppedEvents: beacons.droppedEvents,
+        pending: beacons.pendingCount(),
       }),
     };
   }

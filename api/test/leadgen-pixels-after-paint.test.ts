@@ -154,10 +154,10 @@ it("URL-encodes the measurement id for the SDK and queues its original trimmed v
   ]);
 });
 
-it("serves the byte-identical pre-change shell when neither pixel nor a logo is configured", async () => {
+it("pins the complete shell when neither pixel nor a logo is configured", async () => {
   const html = await renderShell();
-  // Complete, unnormalized response from the same fixture at 3720f666.
-  expect(createHash("sha256").update(html).digest("hex")).toBe("23d5257c5ff90e23717a2faa01f4d807a9feeab9205e0d75fe0a46d508985897");
+  // The complete 3720f666 fixture with the attempt kickoff and runtime preload added.
+  expect(createHash("sha256").update(html).digest("hex")).toBe("fea2f64ed1a0015fcf8369effa83c76a68adfb52fa78f1cd0134ecf40135e3ff");
 });
 
 it.each(["/media/logo.png", `https://${host}/media/logo.png`])("resizes the same-origin OG logo %s on the funnel host", async logo => {
