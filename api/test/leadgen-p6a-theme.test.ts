@@ -96,7 +96,7 @@ describe("P6a deliverable 1 — self-hosted font set", () => {
     const sheet = css(effDesign({ typography: { display: "poppins" } }));
     expect(sheet).toContain("@font-face");
     expect(sheet).toContain("font-family:'Poppins'");
-    expect(sheet).toMatch(/src:url\("\/lg\/fonts\/poppins-400\.[a-f0-9]{16}\.woff2"\) format\("woff2"\)/);
+    expect(sheet).toMatch(/src:url\("\/lg\/runtime\/lgfonts\/poppins-400\.[a-f0-9]{16}\.woff2"\) format\("woff2"\)/);
     expect(sheet).not.toContain("data:font");
     // hard security gate — zero external font requests
     expect(sheet).not.toContain("fonts.googleapis.com");

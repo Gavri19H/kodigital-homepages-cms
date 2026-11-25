@@ -205,13 +205,17 @@ router.get("/favicon.ico", async (c) => {
   });
 });
 
-// A cold edge can receive either URL form during a rollout. For stable filenames,
-// only the version that identifies this bundle gets the one-year lifetime.
-router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
+// Keep the legacy routes for cached HTML. In the shared runtime namespace a
+// cold Worker may only serve the exact content hash it was built with.
+router.on("GET", ["/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", "/lg/runtime/assets/:file"], (c) => {
   const path = c.req.path;
+  const current = currentPublicAssetPath(new URL(c.req.url));
+  if (path.startsWith("/lg/runtime/") && !current) {
+    return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
   const css = path.endsWith(".css");
   const hashed = path !== (css ? "/assets/public.css" : "/assets/public.js");
-  const immutable = hashed || currentPublicAssetPath(new URL(c.req.url)) !== null;
+  const immutable = hashed || current !== null;
   return new Response(css ? minifiedPublicCss : minifiedPublicJs, {
     headers: {
       "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -220,9 +224,13 @@ router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
   });
 });
 
-router.get("/assets/fonts/:file", (c) => {
-  const base64 = PUBLIC_FONT_FILES.get(c.req.path);
-  if (base64 === undefined) return c.notFound();
+router.on("GET", ["/assets/fonts/:file", "/lg/runtime/fonts/:file"], (c) => {
+  const path = c.req.path.replace(/^\/assets\/fonts\//, "/lg/runtime/fonts/");
+  const base64 = PUBLIC_FONT_FILES.get(path);
+  if (base64 === undefined) {
+    if (path === c.req.path) c.header("Cache-Control", "no-store");
+    return c.notFound();
+  }
   return new Response(decodeBase64(base64), {
     headers: {
       "Content-Type": "font/woff2",

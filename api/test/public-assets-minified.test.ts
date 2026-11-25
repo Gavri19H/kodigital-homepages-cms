@@ -34,7 +34,7 @@ describe("build-time minification of public assets", () => {
 
   it.each(assets)("loads $file once at its minified content hash with immutable caching", async asset => {
     const paths = layout.querySelectorAll(asset.selector).map(tag => tag.getAttribute(asset.attr));
-    const path = `/assets/${asset.file}?v=${versionOf(asset.minified)}`;
+    const path = `/lg/runtime/assets/public.${versionOf(asset.minified)}.${asset.file.split(".")[1]}`;
     expect(paths).toEqual([path]);
     const response = await publicRouter.request(origin + path);
     expect(response.status).toBe(200);

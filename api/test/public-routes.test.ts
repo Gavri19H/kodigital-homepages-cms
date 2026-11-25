@@ -220,7 +220,7 @@ describe("T14-AC1 tag page / pagination 301 / page>=2 noindex / rss alias", () =
 
     // Full design document, not a bare fragment / JSON 404.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('<style data-source="brand_tokens">');
     expect(body).toContain("--tw-brand: #1ba8c8");
     // Header + footer regions (banner + contentinfo).
@@ -337,7 +337,7 @@ describe("T14-AC2 styled HTML 404 + styled HTML 500", () => {
     // Rendered through the design shell (full document + public.css), not the
     // rescue-era bare `{"error":"Not Found"}` JSON body.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('class="site-header"');
     expect(body).toContain('class="site-footer"');
     expect(body).toContain('data-error-status="404"');
@@ -366,7 +366,7 @@ describe("T14-AC2 styled HTML 404 + styled HTML 500", () => {
     const body = await res.text();
 
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('class="site-header"');
     expect(body).toContain('data-error-status="500"');
     expect(body).toContain("Something went wrong");

@@ -24,13 +24,15 @@ const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(
   (path) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`,
 ).join("\n");
 
-// Keep the filenames served by both releases and version their URLs by content.
-export const PUBLIC_CSS_PATH = `/assets/public.css?v=${cssHash}`;
-export const PUBLIC_JS_PATH = `/assets/public.js?v=${jsHash}`;
+// Stage 1 also looks up this namespace in the version-independent Cache API.
+export const PUBLIC_CSS_PATH = `/lg/runtime/assets/public.${cssHash}.css`;
+export const PUBLIC_JS_PATH = `/lg/runtime/assets/public.${jsHash}.js`;
 
 export function currentPublicAssetPath(url: URL): string | null {
-  if (url.pathname === "/assets/public.css" && url.searchParams.get("v") === cssHash) return PUBLIC_CSS_PATH;
-  if (url.pathname === "/assets/public.js" && url.searchParams.get("v") === jsHash) return PUBLIC_JS_PATH;
+  if (url.pathname === PUBLIC_CSS_PATH || url.pathname === PUBLIC_JS_PATH) return url.pathname;
+  // Cached HTML can still use the query-versioned URL and its original cache key.
+  if (url.pathname === "/assets/public.css" && url.searchParams.get("v") === cssHash) return `/assets/public.css?v=${cssHash}`;
+  if (url.pathname === "/assets/public.js" && url.searchParams.get("v") === jsHash) return `/assets/public.js?v=${jsHash}`;
   return null;
 }
 

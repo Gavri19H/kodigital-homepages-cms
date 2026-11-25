@@ -192,7 +192,7 @@ describe("public page weight budgets", () => {
       expect(doc.querySelector('[data-frame-region="header"] img')).not.toBeNull();
       expect(doc.querySelectorAll('[data-frame-region="brand_logos"] img').map(img => img.getAttribute("alt")))
         .toEqual(["Oak Insurance", "Elm Mutual"]);
-      for (const marker of ["/lg/fonts/poppins-", "/lg/fonts/manrope-", ga4, meta, "gtag/js", "fbevents.js"]) {
+      for (const marker of ["/lg/runtime/lgfonts/poppins-", "/lg/runtime/lgfonts/manrope-", ga4, meta, "gtag/js", "fbevents.js"]) {
         expect(html, `quote shell with ${marker}`).toContain(marker);
       }
     }

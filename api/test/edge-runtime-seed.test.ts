@@ -4,9 +4,12 @@ import { gatewayFetch } from "../src/edge/gateway";
 import type { LeadgenSnapshotEntry } from "../src/edge/leadgen-select";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import { honoFetch } from "../src/index";
+import { PUBLIC_FONT_FILES } from "../src/public/assets/public-fonts.generated";
+import { LEADGEN_FONT_FILES } from "../src/public/leadgen/designs/fonts.generated";
 import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
 
 const runtimePath = `/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js`;
+const assetCount = 3 + PUBLIC_FONT_FILES.size + LEADGEN_FONT_FILES.size;
 const quote: LeadgenSnapshotEntry = {
   quoteId: "lgq_00000000000000000000000001", defaultFunnelId: 1, rules: [], offerLocations: {},
   funnels: [{ id: 1, abTest: null, variants: [
@@ -49,7 +52,7 @@ function harness(status = 200, contentType = "text/html; charset=utf-8") {
   const app = vi.fn(honoFetch);
   const visit = (url: string, init?: RequestInit) => gatewayFetch(new Request(url, init), env, ctx, app);
   const finish = () => Promise.all(ctx.waitUntil.mock.calls.map(([task]) => task));
-  return { ctx, match, put, app, networkFetch, visit, finish };
+  return { ctx, entries, match, put, app, networkFetch, visit, finish };
 }
 
 afterEach(() => {
@@ -73,10 +76,14 @@ it("seeds the exact immutable runtime for an older Worker whose route returns 40
   expect(response.headers.get("x-edge-cache")).toBe("HIT");
   expect(await response.text()).toContain(`src="${runtimePath}"`);
   await finish();
-  expect(put).toHaveBeenCalledTimes(1);
-  const [writeKey, stored] = put.mock.calls[0]!;
+  expect(put).toHaveBeenCalledTimes(assetCount);
+  const runtimeWrites = put.mock.calls.filter(([request]) => new Request(request).url === key);
+  expect(runtimeWrites).toHaveLength(1);
+  const [writeKey, stored] = runtimeWrites[0]!;
   expect(new Request(writeKey).url).toBe(key);
-  const lookup = new Request(match.mock.calls[1]![0]);
+  const seedLookups = match.mock.calls.slice(1).map(([request]) => new Request(request)).filter(request => request.url === key);
+  expect(seedLookups).toHaveLength(1);
+  const lookup = seedLookups[0]!;
   expect(lookup.url).toBe(key);
   expect([...lookup.headers]).toEqual([]);
 
@@ -97,45 +104,62 @@ it("seeds the exact immutable runtime for an older Worker whose route returns 40
   expect(networkFetch).not.toHaveBeenCalled();
 });
 
-it("returns overlapping shells during the first lookup and skips cache I/O on subsequent shells", async () => {
+it("holds overlapping shells during the first lookup and skips cache I/O on subsequent shells", async () => {
   const { ctx, visit, finish, match, put } = harness();
   const origin = "https://overlap.example";
   let release!: () => void;
   match.mockReturnValueOnce(new Promise(resolve => { release = () => resolve(undefined); }));
-  expect((await visit(origin + "/lg")).status).toBe(200);
-  expect((await visit(origin + "/lg/home")).status).toBe(200);
-  expect(match).toHaveBeenCalledTimes(1);
-  expect(put).not.toHaveBeenCalled();
-  expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+  const returned = vi.fn((response: Response) => response.status);
+  const first = visit(origin + "/lg").then(returned);
+  const second = visit(origin + "/lg/home").then(returned);
+  await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(assetCount - 1));
+  expect(match).toHaveBeenCalledTimes(assetCount);
+  expect(returned).not.toHaveBeenCalled();
+  expect(ctx.waitUntil).not.toHaveBeenCalled();
   release();
+  expect(await Promise.all([first, second])).toEqual([200, 200]);
   await finish();
   expect((await visit(origin + "/lg")).status).toBe(200);
-  expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
-  expect(match).toHaveBeenCalledTimes(1);
-  expect(put).toHaveBeenCalledTimes(1);
+  expect(ctx.waitUntil).not.toHaveBeenCalled();
+  expect(match).toHaveBeenCalledTimes(assetCount);
+  expect(put).toHaveBeenCalledTimes(assetCount);
 });
 
 it("recognizes an already cached runtime and fills a different host independently", async () => {
-  const { visit, finish, match, put } = harness();
-  match.mockResolvedValueOnce(new Response("already cached"));
+  const { visit, finish, entries, match, put } = harness();
+  entries.set("https://warm.example" + runtimePath, new Response("already cached"));
   for (const host of ["warm.example", "warm.example", "another.example"]) {
     expect((await visit(`https://${host}/lg`)).status).toBe(200);
     await finish();
   }
-  expect(match.mock.calls.map(([key]) => new Request(key).url)).toEqual([
+  expect(match).toHaveBeenCalledTimes(assetCount * 2);
+  expect(put).toHaveBeenCalledTimes(assetCount * 2 - 1);
+  const runtimeKeys = (calls: [RequestInfo | URL, ...unknown[]][]) => calls
+    .map(([key]) => new Request(key).url).filter(key => key.endsWith(runtimePath));
+  expect(runtimeKeys(match.mock.calls)).toEqual([
     "https://warm.example" + runtimePath, "https://another.example" + runtimePath,
   ]);
-  expect(put.mock.calls.map(([key]) => new Request(key).url)).toEqual(["https://another.example" + runtimePath]);
+  expect(runtimeKeys(put.mock.calls)).toEqual(["https://another.example" + runtimePath]);
 });
 
 it("serves the shell through a failed cache write and completes the fill on the next shell", async () => {
-  const { visit, finish, put } = harness();
-  put.mockRejectedValueOnce(new Error("cache unavailable"));
+  const { visit, finish, entries, match, put } = harness();
+  let failRuntime = true;
+  put.mockImplementation(async (key, file) => {
+    const url = new Request(key).url;
+    if (url.endsWith(runtimePath) && failRuntime) {
+      failRuntime = false;
+      throw new Error("cache unavailable");
+    }
+    entries.set(url, file);
+  });
   for (let i = 0; i < 3; i++) {
     expect((await visit("https://recover.example/lg")).status).toBe(200);
     await finish();
   }
-  expect(put).toHaveBeenCalledTimes(2);
+  expect(match).toHaveBeenCalledTimes(2 * assetCount);
+  expect(put).toHaveBeenCalledTimes(assetCount + 1);
+  expect(put.mock.calls.filter(([key]) => new Request(key).url.endsWith(runtimePath))).toHaveLength(2);
 });
 
 it.each([
@@ -143,7 +167,7 @@ it.each([
   ["GET", "/lg/home", 404, "text/html", 404],
   ["GET", "/lg/home", 200, "text/html", 304],
   ["GET", "/lg/home", 200, "application/json", 200],
-  ["GET", "/article/news", 200, "text/html", 200],
+  ["GET", "/article/news", 200, "text/markdown", 200],
 ] as const)("skips seeding for %s %s with inner %i %s and final status %i", async (method, path, status, type, final) => {
   const { ctx, visit, match, put } = harness(status, type);
   const headers = final === 304 ? { "If-None-Match": '"shell"' } : undefined;

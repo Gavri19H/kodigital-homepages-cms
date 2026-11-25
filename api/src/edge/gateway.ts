@@ -8,7 +8,7 @@ import type { Env } from "../env";
 import { sha256Hex } from "../leadgen/meta-hash";
 import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
-import { acceptPrefersMarkdown } from "../public/router";
+import publicRouter, { acceptPrefersMarkdown } from "../public/router";
 import { normalizeHostname } from "../safety/protected-domains";
 import { isAdminHost, type SiteContext } from "../site/site-context";
 import { edgeBotVariant } from "./bot";
@@ -19,7 +19,7 @@ import { pickListicle, type ListiclePick } from "./listicle-select";
 import { perfstageRequest } from "./perfstage";
 import { PublicPage } from "./public-page";
 import { parseSiteSnapshot } from "./snapshot";
-import { seedLeadgenRuntime, serveStatic } from "./static-cache";
+import { seedStaticAssets, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
 import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
 
@@ -390,10 +390,14 @@ export async function gatewayFetch(
 ): Promise<Response> {
   // Use Hono's route decoding so an escaped reserved head has the same boundary.
   const path = getPath(request);
-  const pending = dispatchGatewayRequest(request, env, ctx, honoFetch, path);
-  if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return pending;
+  if (path !== "/__edge/tick") request = perfstageRequest(request, env);
+  const response = await dispatchGatewayRequest(request, env, ctx, honoFetch, path);
+  if (request.method === "GET" && response.status === 200 &&
+      /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
+    await seedStaticAssets(new URL(request.url).origin, env);
+  }
+  if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return response;
 
-  const response = await pending;
   // A cached response or a redirect can have immutable headers.
   const versioned = new Response(response.body, response);
   versioned.headers.set("x-worker-version", env.CF_VERSION_METADATA?.id ?? "unknown");
@@ -419,7 +423,12 @@ async function dispatchGatewayRequest(
     for (const name of names) clean.headers.delete(name);
     request = clean;
   }
-  request = perfstageRequest(request, env);
+  // These public file routes share the old Worker's cache namespace. Dispatch
+  // cold reads straight to their handlers, ahead of the /lg/* tenant lookup.
+  if ((request.method === "GET" || request.method === "HEAD") &&
+      /^\/lg\/runtime\/(?:assets|fonts)\/[^/]+$/.test(path) && !isAdminHost(new URL(request.url).hostname, env)) {
+    honoFetch = publicRouter.fetch;
+  }
   let timing: GatewayTiming | undefined;
   try {
     if (path === "/__snap" || path.startsWith("/__snap/")) {
@@ -443,10 +452,6 @@ async function dispatchGatewayRequest(
         if (hostSnapshot && route) {
           const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";
           response = await serveCachedPage(request, url, route, context, readCfSignals(request), hostSnapshot, timing, direct);
-          if (route.kind === "leadgen" && request.method === "GET" && response?.status === 200 &&
-              /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
-            seedLeadgenRuntime(url.origin, ctx);
-          }
         } else if (hostSnapshot && attempt) {
           const { snapshot, version } = hostSnapshot;
           const inner = copyVisitorRequest(request);

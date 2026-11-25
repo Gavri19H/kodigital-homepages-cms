@@ -86,9 +86,13 @@ const leadgenPublicRouter = new Hono<{ Bindings: Env; Variables: PublicSiteVaria
 
 // Live funnels and Studio previews use the same font files on their own host.
 // Their contents are build artifacts, so a cold font request needs no site lookup.
-leadgenPublicRouter.get("/lg/fonts/:file", (c) => {
-  const base64 = LEADGEN_FONT_FILES.get(c.req.path);
-  if (base64 === undefined) return c.notFound();
+leadgenPublicRouter.on("GET", ["/lg/fonts/:file", "/lg/runtime/lgfonts/:file"], (c) => {
+  const path = c.req.path.replace(/^\/lg\/fonts\//, "/lg/runtime/lgfonts/");
+  const base64 = LEADGEN_FONT_FILES.get(path);
+  if (base64 === undefined) {
+    if (path === c.req.path) c.header("Cache-Control", "no-store");
+    return c.notFound();
+  }
   const headers = new Headers({
     "Content-Type": "font/woff2",
     "Cache-Control": "public, max-age=31536000, immutable",

@@ -196,7 +196,7 @@ test.describe("P6a THEME v2 — live funnel", () => {
     const html = await page.content();
     expect(html).toContain("@font-face");
     expect(html).toContain("font-family:'Poppins'");
-    expect(html).toMatch(/src:url\("\/lg\/fonts\/poppins-600\.[a-f0-9]{16}\.woff2"\)/);
+    expect(html).toMatch(/src:url\("\/lg\/runtime\/lgfonts\/poppins-600\.[a-f0-9]{16}\.woff2"\)/);
     expect(html).not.toContain("data:font");
     const loaded = await page.evaluate(async () => (await document.fonts.load("600 16px Poppins")).length);
     expect(loaded).toBe(1);

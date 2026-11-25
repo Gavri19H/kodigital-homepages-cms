@@ -18,7 +18,7 @@ const fonts = [
 ] as const;
 const files = fonts.map(([family, weight, sha256]) => ({
   family, weight, sha256,
-  path: `/assets/fonts/${family.toLowerCase().replace(" ", "-")}-${weight}.${sha256.slice(0, 16)}.woff2`,
+  path: `/lg/runtime/fonts/${family.toLowerCase().replace(" ", "-")}-${weight}.${sha256.slice(0, 16)}.woff2`,
 }));
 const origin = "https://tenant.example";
 const { db, calls } = makeFakeDb();
@@ -27,7 +27,7 @@ const html = renderLayout({ site: { name: "Test", hostname: "tenant.example" }, 
 const head = html.match(/<head>([\s\S]*?)<\/head>/)![1]!;
 const links = head.match(/<link\b[^>]*>/g) ?? [];
 const href = (link: string) => link.match(/\bhref="([^"]+)"/)?.[1] ?? "";
-const wrongHash = "/assets/fonts/nunito-700.0000000000000000.woff2";
+const wrongHash = "/lg/runtime/fonts/nunito-700.0000000000000000.woff2";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -67,18 +67,20 @@ describe("self-hosted public fonts", () => {
   });
 
   it.each(files)("serves the original $family $weight bytes with a one-year immutable lifetime", async ({ path, sha256 }) => {
-    const response = await worker.fetch(new Request(origin + path), env);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("font/woff2");
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    expect(createHash("sha256").update(bytes).digest("hex")).toBe(sha256);
+    for (const url of [path, path.replace("/lg/runtime/fonts/", "/assets/fonts/")]) {
+      const response = await worker.fetch(new Request(origin + url), env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("font/woff2");
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(sha256);
+    }
   });
 
   it.each([wrongHash, files[0]!.path.replace("/nunito-", "/unknown-")])("returns 404 for %s", async path => {
     const response = await worker.fetch(new Request(origin + path), env);
     expect(response.status).toBe(404);
-    expect(response.headers.get("Cache-Control") ?? "").not.toContain("immutable");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("fills the edge cache once and serves the same bytes on the next request", async () => {
@@ -98,11 +100,12 @@ describe("self-hosted public fonts", () => {
     expect([...entries.keys()]).toEqual([url]);
   });
 
-  it("bypasses unrelated paths and unknown font files before consulting the edge cache", async () => {
+  it("bypasses unrelated paths and unknown legacy fonts before consulting the edge cache", async () => {
     const match = vi.fn();
     const upstream = vi.fn();
     vi.stubGlobal("caches", { default: { match } });
-    for (const path of ["/article/news", "/assets/fonts-extra/test.woff2", "/assets/fonts/notes.txt", wrongHash]) {
+    const legacyWrongHash = wrongHash.replace("/lg/runtime/fonts/", "/assets/fonts/");
+    for (const path of ["/article/news", "/assets/fonts-extra/test.woff2", "/assets/fonts/notes.txt", legacyWrongHash]) {
       expect(await serveStatic(new Request(origin + path), env, undefined, upstream)).toBeNull();
     }
     expect(match).not.toHaveBeenCalled();

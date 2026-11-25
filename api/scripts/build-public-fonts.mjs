@@ -23,7 +23,7 @@ for (const { name, weights, preload } of families) {
     const bytes = readFileSync(source);
     if (bytes.toString("ascii", 0, 4) !== "wOF2") throw new Error(`Expected a WOFF2 font at ${source}`);
     const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
-    const path = `/assets/fonts/${slug}-${weight}.${hash}.woff2`;
+    const path = `/lg/runtime/fonts/${slug}-${weight}.${hash}.woff2`;
     files.push(`  ["${path}", "${bytes.toString("base64")}"],`);
     if (weight === preload) preloadPaths.push(path);
     faces.push(`@font-face{font-family:"${name}";font-style:normal;font-weight:${weight};font-display:swap;src:url("${path}") format("woff2")}`);

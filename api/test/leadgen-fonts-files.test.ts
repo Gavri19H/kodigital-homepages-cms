@@ -29,7 +29,7 @@ const originals = [
 ] as const;
 const fonts = originals.map(([family, weight, sha256]) => ({
   family, weight, sha256,
-  path: `/lg/fonts/${family.toLowerCase().replaceAll(" ", "-")}-${weight}.${sha256.slice(0, 16)}.woff2`,
+  path: `/lg/runtime/lgfonts/${family.toLowerCase().replaceAll(" ", "-")}-${weight}.${sha256.slice(0, 16)}.woff2`,
 }));
 const origin = "https://font-test.example";
 const immutable = "public, max-age=31536000, immutable";
@@ -99,21 +99,23 @@ describe("quote funnel font files", () => {
     expect(html.match(/@font-face\{/g)).toHaveLength(2);
     const preloads = fontPreloads(html);
     expect(preloads).toHaveLength(1);
-    expect(preloads[0]).toContain('/lg/fonts/space-grotesk-700.35f8aec56cfd5cbf.woff2');
+    expect(preloads[0]).toContain('/lg/runtime/lgfonts/space-grotesk-700.35f8aec56cfd5cbf.woff2');
   });
 
   it("omits the preload when only the body uses a self-hosted family", async () => {
     const html = await renderShell("system", "manrope");
-    expect(html).toContain("/lg/fonts/manrope-400.");
+    expect(html).toContain("/lg/runtime/lgfonts/manrope-400.");
     expect(fontPreloads(html)).toEqual([]);
   });
 
   it.each(fonts)("serves the original $family $weight WOFF2 with an immutable lifetime", async ({ path, sha256 }) => {
-    const res = await worker.fetch(new Request(origin + path), fontEnv);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("font/woff2");
-    expect(res.headers.get("Cache-Control")).toBe(immutable);
-    expect(createHash("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex")).toBe(sha256);
+    for (const url of [path, path.replace("/lg/runtime/lgfonts/", "/lg/fonts/")]) {
+      const res = await worker.fetch(new Request(origin + url), fontEnv);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("font/woff2");
+      expect(res.headers.get("Cache-Control")).toBe(immutable);
+      expect(createHash("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex")).toBe(sha256);
+    }
   });
 
   it("serves the same font to a sandboxed Studio preview on the admin host", async () => {
@@ -125,7 +127,7 @@ describe("quote funnel font files", () => {
     expect(createHash("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex")).toBe(fonts[0]!.sha256);
   });
 
-  it("rejects an unknown name or wrong hash without consulting the static cache", async () => {
+  it("rejects an unknown legacy name or wrong hash without consulting the static cache", async () => {
     const match = vi.fn();
     vi.stubGlobal("caches", { default: { match } });
     for (const name of ["poppins-400.0000000000000000.woff2", "unknown-400.7d93459d86585bfc.woff2"]) {
@@ -134,6 +136,18 @@ describe("quote funnel font files", () => {
       expect(res.headers.get("Cache-Control") ?? "").not.toContain("immutable");
     }
     expect(match).not.toHaveBeenCalled();
+  });
+
+  it("checks the shared runtime cache before returning a no-store 404 for an unknown font hash", async () => {
+    const match = vi.fn().mockResolvedValue(undefined);
+    const put = vi.fn();
+    vi.stubGlobal("caches", { default: { match, put } });
+    const url = origin + "/lg/runtime/lgfonts/poppins-400.0000000000000000.woff2";
+    const res = await worker.fetch(new Request(url), fontEnv);
+    expect(new Request(match.mock.calls[0]![0]).url).toBe(url);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(put).not.toHaveBeenCalled();
   });
 
   it("fills the edge cache once and reuses the full font across requests", async () => {
