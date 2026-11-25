@@ -38,7 +38,7 @@ import type { Context } from "hono";
 import type { Env } from "../env";
 import { onPublicChange } from "../edge/public-change";
 import { buildStorageKey } from "../media/upload";
-import { extractImageDimensions } from "../media/dimensions";
+import { parseImageSize } from "../media/image-size";
 import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
 import { cacheExecutionCtx } from "../public/html-pipeline";
 import { siteTagsForPublicRow } from "./pages";
@@ -189,7 +189,7 @@ export async function uploadMediaHandler(
   // served.
   const buf = svgOutcome.isSvg ? svgOutcome.bytes : await file.arrayBuffer();
   const sizeBytes = svgOutcome.isSvg ? svgOutcome.bytes.byteLength : file.size;
-  const dimensions = extractImageDimensions(mimeType, buf);
+  const dimensions = parseImageSize(buf);
 
   try {
     await c.env.MEDIA.put(storageKey, buf, {

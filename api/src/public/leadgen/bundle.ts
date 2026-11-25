@@ -109,7 +109,8 @@ export async function loadPreparedFunnelBundle(
   let complete = true;
   // PublicPage already supplies a bookmark-anchored DB to shell renders.
   const session = env.EDGE_INNER === "1" ? env.DB : renderReadDb(env.DB, headers.get("x-cms-bookmark"));
-  const readEnv = { ...env, DB: bundleReadDb(session, () => { complete = false; }) };
+  const markIncomplete = () => { complete = false; };
+  const readEnv = { ...env, DB: bundleReadDb(session, markIncomplete) };
   try {
     const resolved = await resolveActivatedFunnelByVariant(readEnv, siteId, variantId, { quoteSlug, includeRoutingRules: key !== null });
     if (resolved === null) return null;
@@ -117,7 +118,7 @@ export async function loadPreparedFunnelBundle(
       getFunnelDesign(resolved.variant.funnel_design_id))?.frame ?? null;
     const [shell, dimensions] = await Promise.all([
       loadFunnelShellInputs(readEnv, resolved),
-      loadShellLogoDimensions(readEnv.DB, resolved, frame),
+      loadShellLogoDimensions(readEnv, resolved, frame, markIncomplete),
     ]);
     const bundle = { resolved: withShellLogoDimensions(resolved, dimensions), shell };
     if (complete && key !== null) {

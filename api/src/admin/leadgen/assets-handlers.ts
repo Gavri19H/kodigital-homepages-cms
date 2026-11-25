@@ -24,6 +24,7 @@
 
 import type { Context } from "hono";
 import type { Env } from "../../env";
+import { parseImageSize } from "../../media/image-size";
 import { buildStorageKey } from "../../media/upload";
 import { sanitizeSvgUpload } from "../../lib/svg-sanitizer";
 import {
@@ -129,6 +130,7 @@ export async function uploadBrandLogoHandler(c: Context<{ Bindings: Env }>) {
   }
 
   const storageKey = buildStorageKey(filename);
+  const dimensions = parseImageSize(bytes);
   await c.env.MEDIA.put(storageKey, bytes, {
     httpMetadata: { contentType: mimeType },
   });
@@ -136,10 +138,11 @@ export async function uploadBrandLogoHandler(c: Context<{ Bindings: Env }>) {
   // INSERT INTO media — parameterized only (d1-database-safety). site_id scopes
   // the row; ai_generation_id is NULL (this is an upload, not a generation).
   const row = await c.env.DB.prepare(
-    "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, site_id, ai_generation_id) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+    "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, site_id, ai_generation_id, width, height) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
   )
-    .bind(filename, storageKey, mimeType, bytes.byteLength, altText, "brand-logos", scopedSiteId, null)
+    .bind(filename, storageKey, mimeType, bytes.byteLength, altText, "brand-logos", scopedSiteId, null,
+      dimensions?.width ?? null, dimensions?.height ?? null)
     .first<{ id: number }>();
 
   if (!row) {

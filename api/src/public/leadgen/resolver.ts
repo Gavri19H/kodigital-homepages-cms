@@ -42,6 +42,7 @@ import {
   type LeadgenAssignmentReason,
 } from "./ab-hash";
 import { isFunnelVariantId, shouldRedirectForSession } from "../../leadgen/funnel";
+import { IMAGE_SIZE_HEADER_BYTES, parseImageSize } from "../../media/image-size";
 import {
   LEADGEN_BRANDING_SETTINGS_KEYS, resolveSiteBranding, siteBrandingFromSettings, type SiteBranding,
 } from "../../leadgen/branding";
@@ -262,7 +263,8 @@ function sectionLogoNodes(nodes: LeadgenComponentNode[], framed: boolean) {
 }
 
 export async function loadShellLogoDimensions(
-  db: D1Database, resolved: ResolvedActivatedFunnel, frame: EffectiveFrameConfig | null,
+  env: Pick<Env, "DB" | "MEDIA">, resolved: ResolvedActivatedFunnel, frame: EffectiveFrameConfig | null,
+  onReadError: () => void,
 ): Promise<LogoDimensions | undefined> {
   const urls = frame ? frameLogoUrls(frame, resolved.site_branding ?? null) : [];
   for (const { section } of resolved.sections) {
@@ -290,22 +292,40 @@ export async function loadShellLogoDimensions(
   }
   if (!Object.keys(refs).length) return undefined;
   try {
-    const { results } = await db.prepare(
-      `SELECT ref.key AS url, m.width, m.height
+    const { results } = await env.DB.prepare(
+      `SELECT ref.key AS url, m.storage_key, m.width, m.height
        FROM json_each(?1) AS ref CROSS JOIN media AS m
          ON m.storage_key = json_extract(ref.value, '$.key') OR m.id = json_extract(ref.value, '$.id')
-       WHERE (m.site_id = ?2 OR m.site_id IS NULL) AND m.width > 0 AND m.height > 0
+       WHERE (m.site_id = ?2 OR m.site_id IS NULL)
          AND (json_extract(ref.value, '$.host') IS NULL OR EXISTS (
            SELECT 1 FROM domains d WHERE d.hostname = json_extract(ref.value, '$.host') AND d.site_id = ?2 AND d.status = 'active'
          ))`,
     ).bind(JSON.stringify(refs), resolved.site_quote.site_id)
-      .all<Pick<MediaRow, "width" | "height"> & { url: string }>();
+      .all<Pick<MediaRow, "storage_key" | "width" | "height"> & { url: string }>();
     const sizes: Record<string, { width: number; height: number }> = {};
-    for (const { url, width, height } of results) {
+    const missing = new Map<string, string[]>();
+    for (const { url, storage_key, width, height } of results) {
       if (typeof width === "number" && width > 0 && typeof height === "number" && height > 0) {
         sizes[url] = { width, height };
+      } else {
+        const aliases = missing.get(storage_key) ?? [];
+        aliases.push(url);
+        missing.set(storage_key, aliases);
       }
     }
+    // A numeric media ID and a storage-key URL may name the same logo.
+    await Promise.all(Array.from(missing, async ([key, aliases]) => {
+      try {
+        const head = await env.MEDIA.get(key, { range: { offset: 0, length: IMAGE_SIZE_HEADER_BYTES } });
+        const size = head && parseImageSize(await head.arrayBuffer());
+        if (size) {
+          for (const url of aliases) sizes[url] = size;
+        }
+      } catch {
+        // Keep the other sizes for this render and retry a transient R2 failure on the next build.
+        onReadError();
+      }
+    }));
     return sizes;
   } catch {
     // The shell still has its original per-preset box on older schemas or a failed read.

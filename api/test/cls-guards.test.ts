@@ -1,5 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import admin from "../src/admin/router";
+import media from "../src/media";
 import { publicCss } from "../src/public/assets/public-css";
+import { loadPreparedFunnelBundle } from "../src/public/leadgen/bundle";
 import leadgenRouter from "../src/public/leadgen/runtime-routes";
 import { renderLayout } from "../src/public/templates/layout";
 import { buildLeadgenEnv, d1FromSqlite, makeKvStub } from "./helpers/leadgen-analytics-harness";
@@ -8,6 +11,7 @@ import { addSite, createDb, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 const site = "cls-site";
 const host = site + ".example";
+const snapshotVersion = "a".repeat(64);
 const id = (prefix: string) => prefix + "_" + "1".padStart(26, "0");
 const wide = { key: "partners/wide.png", width: 813, height: 217 };
 const square = { key: "partners/square.png", width: 175, height: 175 };
@@ -72,6 +76,17 @@ function fontPreloads(doc: MiniNode) {
   });
 }
 
+function pngHeader(width: number, height: number) {
+  const bytes = Uint8Array.of(
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+    0, 0, 0, 0, 0, 0, 0, 0,
+  );
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes.buffer;
+}
+
 describe("quote first paint", () => {
   let db: SqliteDb;
   beforeEach(() => { db = createDb(); seed(db); });
@@ -101,15 +116,17 @@ describe("quote first paint", () => {
       };
       return stmt;
     };
-    const env = buildLeadgenEnv(binding, makeKvStub().kv, { extra: { EDGE_INNER: "1" } });
+    const get = vi.fn<(key: string, options: R2GetOptions) => Promise<Pick<R2ObjectBody, "arrayBuffer"> | null>>()
+      .mockResolvedValue(null);
+    const env = buildLeadgenEnv(binding, makeKvStub().kv, { extra: { EDGE_INNER: "1", MEDIA: { get } } });
     const read = async (withSnapshot = true) => {
       const headers = new Headers({ "x-cms-variant": "lg:" + id("lgn") });
-      if (withSnapshot) headers.set("x-cms-snap-version", "a".repeat(64));
+      if (withSnapshot) headers.set("x-cms-snap-version", snapshotVersion);
       const res = await leadgenRouter.request("https://" + host + "/lg/home", { headers }, env);
       expect(res.status).toBe(200);
       return res.text();
     };
-    return { read, rounds };
+    return { read, rounds, get, env };
   }
 
   it("reserves intrinsic logo widths at each display height on a cold and warm bundle", async () => {
@@ -145,6 +162,81 @@ describe("quote first paint", () => {
     expect(mediaRounds[0]!.some(sql => sql.includes("FROM leadgen_section_answer_maps"))).toBe(true);
   });
 
+  it("reads one R2 prefix per unsized object in parallel and serves those sizes from the warm bundle", async () => {
+    const tallRow = db.prepare("UPDATE media SET width = NULL, height = NULL WHERE storage_key = ? RETURNING id")
+      .get(tall.key) as { id: number };
+    db.prepare("UPDATE site_settings SET value = ? WHERE site_id = ? AND key = 'trust_logo_media_ids'")
+      .run(JSON.stringify([String(tallRow.id)]), site);
+    const partner = { width: 530, height: 75 };
+    const { read, rounds, get, env } = shellReader();
+    const heads = new Map([["empty.png", partner], [tall.key, tall]]);
+    let activeReads = 0;
+    let peakReads = 0;
+    get.mockImplementation(async key => {
+      activeReads++;
+      peakReads = Math.max(peakReads, activeReads);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      activeReads--;
+      const size = heads.get(key);
+      return size ? new Response(pngHeader(size.width, size.height)) : null;
+    });
+    const cold = await read();
+    const doc = parseHtml(cold);
+    expectBox(doc, 'img[alt="Unsized"]', partner, 32);
+    expectBox(doc, 'img[alt="Section"]', tall, 32);
+    expectBox(doc, ".lg-frame-trust img", tall, 32);
+    expect(get).toHaveBeenCalledTimes(2);
+    for (const key of heads.keys()) {
+      expect(get).toHaveBeenCalledWith(key, { range: { offset: 0, length: 65536 } });
+    }
+    expect(peakReads).toBe(2);
+    expect(db.prepare("SELECT width, height FROM media WHERE storage_key = ?").get("empty.png"))
+      .toEqual({ width: null, height: 100 });
+
+    get.mockClear();
+    rounds.length = 0;
+    const bundle = await loadPreparedFunnelBundle(env, new Headers({ "x-cms-snap-version": snapshotVersion }), site, id("lgn"));
+    expect(bundle?.resolved.site_branding?.logoDimensions).toMatchObject({
+      "/media/empty.png": partner,
+      ["/media/" + tall.key]: { width: tall.width, height: tall.height },
+      ["/media/" + tallRow.id]: { width: tall.width, height: tall.height },
+    });
+    expect(await read()).toBe(cold);
+    expect(get).toHaveBeenCalledTimes(0);
+    expect(rounds.flat().filter(sql => /JOIN media\b/i.test(sql))).toHaveLength(0);
+  });
+
+  it("keeps the other logo sizes when an R2 read fails and retries on the next build", async () => {
+    const { read, get } = shellReader();
+    get.mockRejectedValueOnce(new Error("R2 read failed"))
+      .mockResolvedValue(new Response(pngHeader(255, 50)));
+    const first = parseHtml(await read());
+    expectBox(first, 'img[alt="Square"]', square, 48);
+    expectBox(first, 'img[alt="Unsized"]', { width: 3, height: 1 }, 32);
+    const repaired = await read();
+    expectBox(parseHtml(repaired), 'img[alt="Unsized"]', { width: 255, height: 50 }, 32);
+    expect(await read()).toBe(repaired);
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["/api/admin/leadgen/assets/brand-logo", 200],
+    ["/admin/media", 200],
+    ["/api/admin/media/upload", 201],
+  ] as const)("stores the uploaded SVG's dimensions on the new row via %s", async (url, status) => {
+    const put = vi.fn().mockResolvedValue(null);
+    const env = buildLeadgenEnv(d1FromSqlite(db), makeKvStub().kv, { extra: { DEV_BYPASS_AUTH: "true", MEDIA: { put } } });
+    const form = new FormData();
+    form.set("file", new File(['<svg viewBox="0 0 315 71"><rect width="4" height="2"/></svg>'],
+      "new-partner.svg", { type: "image/svg+xml" }));
+    const router = url === "/admin/media" ? media : admin;
+    const res = await router.request(url, { method: "POST", body: form }, env);
+    expect(res.status).toBe(status);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(db.prepare("SELECT width, height FROM media WHERE filename = ?").get("new-partner.svg"))
+      .toEqual({ width: 315, height: 71 });
+  });
+
   it("matches absolute media URLs on this site's domains and keeps foreign logos at their original size", async () => {
     addSite(db, "neighbor", "Neighbor", "health");
     db.prepare("INSERT INTO domains (site_id, hostname, status) VALUES ('neighbor', 'neighbor.example', 'active')").run();
@@ -155,11 +247,13 @@ describe("quote first paint", () => {
       { media_id: "foreign.png", alt: "ForeignRow" },
     ] }, footer: { enabled: true, show_logo: true } };
     db.prepare("UPDATE leadgen_funnels SET frame_config_json = ? WHERE id = 1").run(JSON.stringify(manual));
-    const doc = parseHtml(await shellReader().read());
+    const { read, get } = shellReader();
+    const doc = parseHtml(await read());
     expectBox(doc, 'img[alt="Local"]', square, 32);
     expectBox(doc, 'img[alt="ForeignHost"]', { width: 3, height: 1 }, 32);
     expectBox(doc, 'img[alt="ForeignRow"]', { width: 3, height: 1 }, 32);
     expectBox(doc, ".lg-frame-footer-logo", wide, 32);
+    expect(get.mock.calls.map(([key]) => key)).toEqual(["empty.png"]);
   });
 
   it("uses the media row in a frameless section's header, header bar and auto site logo", async () => {
