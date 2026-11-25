@@ -163,6 +163,21 @@ export function funnelImageAttrs(url: string, alt: string, width: number, height
     ` width="${Math.round(width)}" height="${Math.round(height)}"`;
 }
 
+export type LogoDimensions = Readonly<Record<string, { width: number; height: number }>>;
+
+// Width is auto in the stylesheet. Give the browser the decoded aspect
+// ratio before the file arrives, including on a mobile <picture> source.
+export function logoWidth(url: string, height: number, dimensions?: LogoDimensions): number {
+  const size = dimensions?.[url];
+  return size && Number.isFinite(size.width) && size.width > 0 && Number.isFinite(size.height) && size.height > 0
+    ? Math.max(1, Math.round(Math.round(height) * size.width / size.height))
+    : Math.round(height * 3);
+}
+
+// Resolved media metadata is for the renderer. The public config projects
+// authored props separately and never needs these dimensions.
+export type ShellLogoNode = LeadgenComponentNode & { logoDimensions?: LogoDimensions };
+
 // Fluid images use width descriptors so the browser can select for its actual
 // viewport. The caller owns the CSS box (or, for authored media, its absence).
 export function fluidImageAttrs(url: string, alt: string, widths: readonly number[], sizes: string): string {
@@ -1023,12 +1038,10 @@ export function renderProgressBar(node: LeadgenComponentNode, design: DefaultFun
 
 function siteLogoImage(
   url: string, alt: string, design: DefaultFunnelDesign, loading: "eager" | "lazy",
-  height = funnelImagePixels(design.header.logoFontSize, 18), mobileHeight = height,
+  height = funnelImagePixels(design.header.logoFontSize, 18), mobileHeight = height, dimensions?: LogoDimensions,
 ): string {
-  // The media projection has no intrinsic width. Reserve a wordmark-shaped
-  // slot until decode, then width:auto follows the mark's own aspect ratio.
   const mobileSource = mobileHeight !== height && url.startsWith("/media/");
-  const img = `<img class="lg-logo-img" ${funnelImageAttrs(url, alt, height * 3, height)}` +
+  const img = `<img class="lg-logo-img" ${funnelImageAttrs(url, alt, logoWidth(url, height, dimensions), height)}` +
     ` loading="${loading}" decoding="async"` + style({
       "max-height": design.header.logoFontSize, width: "auto", "object-fit": "contain",
       // For an external URL both breakpoints use the same file. The frame's
@@ -1039,17 +1052,17 @@ function siteLogoImage(
   if (!mobileSource) return img;
   return `<picture><source media="(max-width: ${esc(design.breakpoints.mobileMax)})"` +
     attr("srcset", densitySrcset(url, "height", mobileHeight)) +
-    ` width="${Math.round(mobileHeight * 3)}" height="${Math.round(mobileHeight)}">${img}</picture>`;
+    ` width="${logoWidth(url, mobileHeight, dimensions)}" height="${Math.round(mobileHeight)}">${img}</picture>`;
 }
 
-export function renderHeaderLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign, height?: number, mobileHeight?: number): string {
+export function renderHeaderLogo(node: ShellLogoNode, design: DefaultFunnelDesign, height?: number, mobileHeight?: number): string {
   const logoMediaId = propStr(node, "logoMediaId");
   const logoUrl = mediaUrl(propStr(node, "logoUrl"));
   const siteName = propStr(node, "siteName") ?? "";
   const accent = propStr(node, "accent");
   const inner =
     logoUrl !== null
-      ? siteLogoImage(logoUrl, siteName, design, "eager", height, mobileHeight)
+      ? siteLogoImage(logoUrl, siteName, design, "eager", height, mobileHeight, node.logoDimensions)
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName)}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -4769,7 +4782,20 @@ function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; al
   return out;
 }
 
-export function renderLogoStrip(node: LeadgenComponentNode, design: DefaultFunnelDesign, brandLogos = false): string {
+// These are the section presets that paint a logo at its natural width.
+export function sectionLogoUrls(node: LeadgenComponentNode): (string | null)[] {
+  if (node.type === "LogoStrip") return logoStripLogos(node).map(logo => mediaUrl(logo.mediaId));
+  if (node.type === "HeaderLogo" || (node.type === "ImageBlock" && propStr(node, "source") === "auto_logo")) {
+    return [mediaUrl(propStr(node, "logoUrl"))];
+  }
+  if (node.type === "HeaderBar") {
+    const ref = propStr(node, "logoMediaId");
+    return isPendingMediaRef(ref) ? [] : [mediaUrl(ref)];
+  }
+  return [];
+}
+
+export function renderLogoStrip(node: ShellLogoNode, design: DefaultFunnelDesign, brandLogos = false): string {
   const baseHeight = funnelImagePixels(design.logoStrip.logoMaxHeight, 32);
   const logos = logoStripLogos(node)
     .map((logo) => {
@@ -4779,7 +4805,7 @@ export function renderLogoStrip(node: LeadgenComponentNode, design: DefaultFunne
       const size = brandLogos ? logo.size : undefined;
       const height = size === "s" ? 24 : size === "l" ? 48 : baseHeight;
       return `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
-        ` ${funnelImageAttrs(url, logo.alt, height * 3, height)} loading="lazy">`;
+        ` ${funnelImageAttrs(url, logo.alt, logoWidth(url, height, node.logoDimensions), height)} loading="lazy">`;
     })
     .join("");
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
@@ -5014,7 +5040,7 @@ export function renderTextBlock(
 // page.textLightColor — no new visual language invented) — the moment a real
 // caller populates logoUrl/siteName (this function's own existing, unchanged
 // contract), the placeholder branch is bypassed and real branding renders.
-function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function renderImageBlockAutoLogo(node: ShellLogoNode, design: DefaultFunnelDesign): string {
   const logoRef = propStr(node, "logoUrl");
   const logoUrl = mediaUrl(logoRef);
   const siteNameRaw = propStr(node, "siteName");
@@ -5029,7 +5055,7 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
   }
   const inner =
     logoUrl !== null
-      ? siteLogoImage(logoUrl, siteName ?? "", design, "lazy")
+      ? siteLogoImage(logoUrl, siteName ?? "", design, "lazy", undefined, undefined, node.logoDimensions)
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName ?? "")}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -5446,7 +5472,7 @@ export function renderSpacer(node: LeadgenComponentNode, design: DefaultFunnelDe
 // slot · optional CTA {label, href|tel}. Fully class-driven (headerBar token
 // group in the scoped chrome CSS); the back toggle carries the engine's
 // data-lg-back hook (03 §3.3) exactly like the BackButton chrome component.
-export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderHeaderBar(node: ShellLogoNode, design: DefaultFunnelDesign): string {
   const logoMediaId = propStr(node, "logoMediaId");
   const url = mediaUrl(logoMediaId);
   const height = funnelImagePixels(design.headerBar.logoMaxHeight, 32);
@@ -5458,7 +5484,7 @@ export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunne
       style({ border: design.input.border, color: design.page.textLightColor }) +
       `>Logo</span>`
     : url !== null
-      ? `<img class="lg-headerbar-logo" ${funnelImageAttrs(url, propStr(node, "logoAlt") ?? "", height * 3, height)} loading="eager" decoding="async">`
+      ? `<img class="lg-headerbar-logo" ${funnelImageAttrs(url, propStr(node, "logoAlt") ?? "", logoWidth(url, height, node.logoDimensions), height)} loading="eager" decoding="async">`
       : "";
   const backLabel = propStr(node, "backLabel") ?? "Back";
   const back = propBool(node, "back")

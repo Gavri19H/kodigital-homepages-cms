@@ -75,7 +75,7 @@ afterEach(() => {
 });
 
 describe("quote funnel font files", () => {
-  it("renders only the two selected families and preloads the display headline's exact face", async () => {
+  it("preloads the two selected families, including the headline's exact face", async () => {
     const html = await renderShell("poppins", "manrope");
     expect(html).toContain("Do you own your home?");
     expect(html).not.toMatch(/data:font|fonts\.(?:googleapis|gstatic)\.com/i);
@@ -88,24 +88,28 @@ describe("quote funnel font files", () => {
     }
     const preloads = fontPreloads(html);
     const displayPath = selected.find(font => font.family === "Poppins" && font.weight === 600)!.path;
-    expect(preloads).toHaveLength(1);
-    expect(preloads[0]).toContain(`href="${displayPath}"`);
-    expect(preloads[0]).toContain('type="font/woff2"');
-    expect(preloads[0]).toMatch(/\scrossorigin(?:="anonymous")?(?=\s|>)/);
+    expect(preloads.map(tag => tag.match(/href="([^"]+)"/)![1]).sort()).toEqual(selected.map(font => font.path).sort());
+    expect(preloads).toContainEqual(expect.stringContaining(`href="${displayPath}"`));
+    for (const tag of preloads) {
+      expect(tag).toContain('type="font/woff2"');
+      expect(tag).toMatch(/\scrossorigin(?:="anonymous")?(?=\s|>)/);
+    }
   });
 
   it("uses the available 700 for a display family without 600, even when body and display match", async () => {
     const html = await renderShell("space_grotesk", "space_grotesk");
     expect(html.match(/@font-face\{/g)).toHaveLength(2);
     const preloads = fontPreloads(html);
-    expect(preloads).toHaveLength(1);
-    expect(preloads[0]).toContain('/lg/runtime/lgfonts/space-grotesk-700.35f8aec56cfd5cbf.woff2');
+    expect(preloads).toHaveLength(2);
+    expect(preloads).toContainEqual(expect.stringContaining('/lg/runtime/lgfonts/space-grotesk-700.35f8aec56cfd5cbf.woff2'));
+    expect(preloads).toContainEqual(expect.stringContaining('/lg/runtime/lgfonts/space-grotesk-400.65fd17fcbd2e2f52.woff2'));
   });
 
-  it("omits the preload when only the body uses a self-hosted family", async () => {
+  it("preloads only the body faces when the display stack is a system font", async () => {
     const html = await renderShell("system", "manrope");
     expect(html).toContain("/lg/runtime/lgfonts/manrope-400.");
-    expect(fontPreloads(html)).toEqual([]);
+    expect(fontPreloads(html).map(tag => tag.match(/href="([^"]+)"/)![1]).sort())
+      .toEqual(fonts.filter(font => font.family === "Manrope").map(font => font.path).sort());
   });
 
   it.each(fonts)("serves the original $family $weight WOFF2 with an immutable lifetime", async ({ path, sha256 }) => {

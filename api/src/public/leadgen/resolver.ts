@@ -23,6 +23,7 @@
 // Missing / disabled activation → returns null (the caller 404s per §17.2).
 
 import type { Env } from "../../env";
+import type { MediaRow } from "../../db";
 import type {
   LeadgenSiteQuoteRow,
   LeadgenQuoteRow,
@@ -55,7 +56,10 @@ import { sha256Hex } from "./auction/parse";
 // CHECKPOINT). Imported as VALUES; config-dto imports THIS module type-only
 // (`import type`), so there is no runtime import cycle.
 import { parseSectionComponents, expandPublicComponents, type PublicSectionComponent } from "./config-dto";
-import type { LeadgenComponentNode } from "./components/content-schema";
+import { flattenComponents, type LeadgenComponentNode, type LeadgenSectionContent } from "./components/content-schema";
+import { sectionLogoUrls, type LogoDimensions, type ShellLogoNode } from "./components/presets";
+import { COMPONENT_CATALOG } from "./components/registry";
+import { frameLogoUrls } from "./designs/frame";
 // Round-4 P4a-adj (P5a runtime seam #1, CTA visibility): frame-only resolution
 // (no theme/tokens) + the P2a composed-group evaluator, both reused here (NOT
 // re-derived) so a CTA condition and a section dependency conditional can never
@@ -210,6 +214,8 @@ export interface FunnelAssignment {
   routing_rule_hash?: string;
 }
 
+export type FunnelSiteBranding = SiteBranding & { logoDimensions?: LogoDimensions };
+
 export interface ResolvedActivatedFunnel {
   site_quote: LeadgenSiteQuoteRow;
   quote: LeadgenQuoteRow;
@@ -239,11 +245,98 @@ export interface ResolvedActivatedFunnel {
   // TYPE only so hand-built minimal bundles (the auction dry-run in
   // admin/leadgen/auctions-handlers.ts + test fixtures) stay valid; BOTH
   // resolver functions below always populate it.
-  site_branding?: SiteBranding;
+  site_branding?: FunnelSiteBranding;
   // Request-local inputs shared by entry selection, rendering and attempt minting.
   // An empty rule set or null defaults are completed reads. Fixtures may omit them.
   routing_rules?: readonly ParsedQuoteRule[];
   saved_template_defaults?: EffectiveFrameConfig | null;
+}
+
+// Apply the same top-level frame-chrome filter as renderVariantSectionsHtml.
+function sectionLogoNodes(nodes: LeadgenComponentNode[], framed: boolean) {
+  const visible = framed ? nodes.filter(node => node && COMPONENT_CATALOG[node.type]?.scope !== "frame") : nodes;
+  return flattenComponents(visible).flatMap((node: ShellLogoNode) => {
+    const urls = node ? sectionLogoUrls(node).filter((url): url is string => url !== null) : [];
+    return urls.length ? [{ node, urls }] : [];
+  });
+}
+
+export async function loadShellLogoDimensions(
+  db: D1Database, resolved: ResolvedActivatedFunnel, frame: EffectiveFrameConfig | null,
+): Promise<LogoDimensions | undefined> {
+  const urls = frame ? frameLogoUrls(frame, resolved.site_branding ?? null) : [];
+  for (const { section } of resolved.sections) {
+    for (const logo of sectionLogoNodes(parseSectionComponents(section.content_json), frame !== null)) {
+      urls.push(...logo.urls);
+    }
+  }
+  // /media/<integer> is the legacy media-id route. All other local refs
+  // address a storage key. Bind the whole set once, even above 100 logos.
+  const refs: Record<string, { id?: number; key?: string; host?: string }> = {};
+  for (const url of new Set(urls)) {
+    if (!url) continue;
+    let path = url;
+    let host: string | undefined;
+    if (/^(?:https?:)?\/\//i.test(url)) {
+      try {
+        const absolute = new URL(url.startsWith("//") ? "https:" + url : url);
+        path = absolute.pathname;
+        host = absolute.host;
+      } catch { continue; }
+    }
+    if (!path.startsWith("/media/")) continue;
+    const key = path.slice("/media/".length).split(/[?#]/, 1)[0];
+    if (key) refs[url] = /^\d+$/.test(key) ? { id: Number(key), host } : { key, host };
+  }
+  if (!Object.keys(refs).length) return undefined;
+  try {
+    const { results } = await db.prepare(
+      `SELECT ref.key AS url, m.width, m.height
+       FROM json_each(?1) AS ref CROSS JOIN media AS m
+         ON m.storage_key = json_extract(ref.value, '$.key') OR m.id = json_extract(ref.value, '$.id')
+       WHERE (m.site_id = ?2 OR m.site_id IS NULL) AND m.width > 0 AND m.height > 0
+         AND (json_extract(ref.value, '$.host') IS NULL OR EXISTS (
+           SELECT 1 FROM domains d WHERE d.hostname = json_extract(ref.value, '$.host') AND d.site_id = ?2 AND d.status = 'active'
+         ))`,
+    ).bind(JSON.stringify(refs), resolved.site_quote.site_id)
+      .all<Pick<MediaRow, "width" | "height"> & { url: string }>();
+    const sizes: Record<string, { width: number; height: number }> = {};
+    for (const { url, width, height } of results) {
+      if (typeof width === "number" && width > 0 && typeof height === "number" && height > 0) {
+        sizes[url] = { width, height };
+      }
+    }
+    return sizes;
+  } catch {
+    // The shell still has its original per-preset box on older schemas or a failed read.
+    return undefined;
+  }
+}
+
+// Only the flat render projection needs dimensions on a section node. The
+// authored page tree stays intact in KV and the public config reads only props.
+export function withShellLogoDimensions(
+  resolved: ResolvedActivatedFunnel, sizes: LogoDimensions | undefined,
+): ResolvedActivatedFunnel {
+  if (!sizes || !Object.keys(sizes).length) return resolved;
+  const sections = resolved.sections.map(row => {
+    let content: LeadgenSectionContent | null;
+    try { content = JSON.parse(row.section.content_json); } catch { return row; }
+    if (!Array.isArray(content?.components)) return row;
+    let changed = false;
+    for (const { node, urls } of sectionLogoNodes(content.components, false)) {
+      const known = urls.filter(url => sizes[url]);
+      if (known.length) {
+        node.logoDimensions = Object.fromEntries(known.map(url => [url, sizes[url]!]));
+        changed = true;
+      }
+    }
+    return changed ? { ...row, section: { ...row.section, content_json: JSON.stringify(content) } } : row;
+  });
+  return {
+    ...resolved, sections,
+    site_branding: resolved.site_branding && { ...resolved.site_branding, logoDimensions: sizes },
+  };
 }
 
 export interface ResolveFunnelArgs {

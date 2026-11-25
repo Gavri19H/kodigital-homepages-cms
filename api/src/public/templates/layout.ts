@@ -16,13 +16,14 @@
 import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
 import { cfTransform } from "./responsive-img";
 import { cssHash, jsHash } from "../assets/public-assets.generated";
-import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
+import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_FILES, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
-const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(
-  (path) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`,
-).join("\n");
+const fontPreload = (path: string) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`;
+const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(fontPreload).join("\n");
+const articleH1Font = [...PUBLIC_FONT_FILES.keys()].find(path => path.startsWith("/lg/runtime/fonts/nunito-900."));
+const articleH1Preload = articleH1Font ? "\n" + fontPreload(articleH1Font) : "";
 
 // Stage 1 also looks up this namespace in the version-independent Cache API.
 export const PUBLIC_CSS_PATH = `/lg/runtime/assets/public.${cssHash}.css`;
@@ -272,7 +273,7 @@ ${resizeOpenGraphImage(seoHead, site.hostname, shareImage)}
 ${iconTags}
 ${linkTags}
 ${feedLinks}
-${fontPreloads}
+${fontPreloads}${meta.ogType === "article" ? articleH1Preload : ""}
 <style>${PUBLIC_FONT_FACE_CSS}</style>
 <link rel="stylesheet" href="${PUBLIC_CSS_PATH}">
 ${styleBlock}

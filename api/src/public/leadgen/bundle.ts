@@ -4,8 +4,12 @@ import type { Env } from "../../env";
 import { isFunnelVariantId } from "../../leadgen/funnel";
 import type { WaitUntilContext } from "../../wait-until-context";
 import { readLiveAttemptConfig } from "./attempt";
-import { loadQuoteRoutingRules, resolveActivatedFunnelByVariant, sectionsFromPages, type ResolvedActivatedFunnel } from "./resolver";
-import { loadFunnelShellInputs } from "./serve";
+import {
+  loadQuoteRoutingRules, loadShellLogoDimensions, resolveActivatedFunnelByVariant, sectionsFromPages,
+  withShellLogoDimensions, type ResolvedActivatedFunnel,
+} from "./resolver";
+import { frameSourceOf, loadFunnelShellInputs, resolveFrameComposition } from "./serve";
+import { getFunnelDesign } from "./designs/registry";
 
 export interface PreparedFunnelBundle {
   resolved: ResolvedActivatedFunnel;
@@ -59,7 +63,8 @@ async function decodeBundle(key: string, raw: string, siteId: string, variantId:
     const { resolved, shell }: StoredBundle = JSON.parse(body);
     if (resolved.site_quote.site_id !== siteId || resolved.variant.public_id !== variantId ||
         !Array.isArray(resolved.pages) || !Array.isArray(resolved.routing_rules)) return null;
-    return { resolved: { ...resolved, sections: sectionsFromPages(resolved.pages) }, shell };
+    const definition = { ...resolved, sections: sectionsFromPages(resolved.pages) };
+    return { resolved: withShellLogoDimensions(definition, resolved.site_branding?.logoDimensions), shell };
   } catch {
     return null;
   }
@@ -84,12 +89,14 @@ export async function loadPreparedFunnelBundle(
   ctx?: WaitUntilContext, quoteSlug?: string | null,
 ): Promise<PreparedFunnelBundle | null | undefined> {
   const snapshotVersion = bundleSnapshotVersion(headers);
-  if (snapshotVersion === null) return undefined;
+  // PublicPage bypasses the inner HTML cache. Its selected shell can build
+  // the same inputs in parallel even when it has no snapshot version for KV.
+  if (snapshotVersion === null && (env.EDGE_INNER !== "1" || quoteSlug === undefined)) return undefined;
   if (!isFunnelVariantId(variantId)) return null;
-  const key = leadgenBundleKey(siteId, variantId, snapshotVersion, env.CF_VERSION_METADATA?.id);
+  const key = snapshotVersion && leadgenBundleKey(siteId, variantId, snapshotVersion, env.CF_VERSION_METADATA?.id);
   try {
-    const raw = await env.CACHE.get(key);
-    if (raw !== null) {
+    const raw = key === null ? null : await env.CACHE.get(key);
+    if (raw !== null && key !== null) {
       const bundle = await decodeBundle(key, raw, siteId, variantId);
       if (bundle !== null) return quoteSlug === undefined || bundle.resolved.site_quote.slug === quoteSlug ? bundle : null;
       // Finish the eviction before replacing it so a late delete cannot erase the repair.
@@ -104,10 +111,16 @@ export async function loadPreparedFunnelBundle(
   const session = env.EDGE_INNER === "1" ? env.DB : renderReadDb(env.DB, headers.get("x-cms-bookmark"));
   const readEnv = { ...env, DB: bundleReadDb(session, () => { complete = false; }) };
   try {
-    const resolved = await resolveActivatedFunnelByVariant(readEnv, siteId, variantId, { quoteSlug, includeRoutingRules: true });
+    const resolved = await resolveActivatedFunnelByVariant(readEnv, siteId, variantId, { quoteSlug, includeRoutingRules: key !== null });
     if (resolved === null) return null;
-    const bundle = { resolved, shell: await loadFunnelShellInputs(readEnv, resolved) };
-    if (complete) {
+    const frame = resolveFrameComposition(frameSourceOf(resolved, resolved.saved_template_defaults),
+      getFunnelDesign(resolved.variant.funnel_design_id))?.frame ?? null;
+    const [shell, dimensions] = await Promise.all([
+      loadFunnelShellInputs(readEnv, resolved),
+      loadShellLogoDimensions(readEnv.DB, resolved, frame),
+    ]);
+    const bundle = { resolved: withShellLogoDimensions(resolved, dimensions), shell };
+    if (complete && key !== null) {
       const write = storeBundle(env.CACHE, key, bundle).catch(() => {});
       if (ctx) ctx.waitUntil(write);
       else await write;

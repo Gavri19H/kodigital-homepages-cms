@@ -85,7 +85,8 @@ import { flattenComponents } from "./components/content-schema";
 // warning (frame_scope_component) already reads.
 import { COMPONENT_CATALOG } from "./components/registry";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
-import { displayFontPreloadPath, funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+import { LEADGEN_FONT_FACE_CSS } from "./designs/fonts.generated";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
@@ -1089,6 +1090,14 @@ const LEADGEN_PREHYDRATE_JS =
   "q.push({el:el,t:Date.now()});" +
   "},true);})();";
 
+// Build links from the generated face rules so a changed font hash also
+// changes its preload. Theme stacks start with the selected, quoted family.
+const fontPreloadsByFamily = new Map(Object.entries(LEADGEN_FONT_FACE_CSS).map(([family, faces]) => [
+  `'${family}'`,
+  Array.from(faces.matchAll(/src:url\("([^"]+)"\)/g),
+    ([, path]) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`).join(""),
+]));
+
 // Render the pristine funnel shell (v2.4 03 §3.2): scoped chrome CSS from the
 // resolved design + EVERY Section of the resolved variant server-rendered in
 // order inside the data-lg-mount (first section visible — the first question
@@ -1141,7 +1150,8 @@ function renderFunnelShell(
   const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
-  const displayFont = displayFontPreloadPath(effectiveDesign);
+  const firstScreenFamilies = new Set([effectiveDesign.page.fontFamily, effectiveDesign.page.fontDisplay]
+    .map(stack => stack.split(",", 1)[0]!.trim()));
   const chromeCss =
     composition === null
       ? funnelChromeCss(design, scope)
@@ -1209,7 +1219,7 @@ function renderFunnelShell(
     `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="this.onerror=null;` +
     `setTimeout(()=>{const retry=document.createElement('script');retry.src=this.src;document.head.appendChild(retry)},400)"></script>` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    (displayFont ? `<link rel="preload" as="font" type="font/woff2" crossorigin href="${displayFont}">` : "") +
+    Array.from(firstScreenFamilies, family => fontPreloadsByFamily.get(family) ?? "").join("") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
     // the tab shows the site's public name, never the internal funnel name.
     '<meta name="robots" content="noindex">' +

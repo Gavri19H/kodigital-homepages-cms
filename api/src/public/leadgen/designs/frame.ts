@@ -45,6 +45,8 @@ import {
   fluidImageAttrs,
   funnelImageAttrs,
   funnelImagePixels,
+  logoWidth,
+  type LogoDimensions,
   renderBackButton,
   renderDisclosureLink,
   renderFooterBar,
@@ -92,7 +94,7 @@ import type {
 // (frames.ts's STORE-time gate); every footer href THIS module renders
 // re-checks it too (defense in depth), never a re-declared copy.
 import { FRAME_FOOTER_BLOCK_GAPS, SAFE_HREF_RE } from "./frames";
-import type { SiteBranding } from "../../../leadgen/branding";
+import type { FunnelSiteBranding as SiteBranding } from "../resolver";
 
 // ---------------------------------------------------------------------------
 // §10.2/§10.4 CMS fallback mark — the terminal leg of the logo ladder (site
@@ -417,7 +419,7 @@ function renderHeaderRegion(
   const logo =
     logoProps["logoUrl"] !== undefined
       ? renderHeaderLogo(
-          frameNode("HeaderLogo", "frame_logo", logoProps), design,
+          { ...frameNode("HeaderLogo", "frame_logo", logoProps), logoDimensions: branding?.logoDimensions }, design,
           heights[h.logo_size], heights[frame.mobile.logo_size ?? h.logo_size],
         )
       : renderLogoFallbackChip(adminPreview, siteSettingsHref);
@@ -634,25 +636,30 @@ function renderBackRegion(back: FrameBackConfig, design: DefaultFunnelDesign): s
 // back to "<site name> logo <n>"; operators who need real alt copy use
 // source:"manual" (alt REQUIRED there, §3.3). An absent/null/empty projection
 // renders nothing — never a broken strip (unchanged fail-safe).
+function trustStripLogos(t: FrameTrustStripConfig, branding: SiteBranding | null) {
+  const siteMark =
+    branding !== null && branding.site_name.trim() !== "" ? branding.site_name : CMS_FALLBACK_LOGO_TEXT;
+  return t.source === "manual"
+    ? t.logos
+        .map((l) => ({ mediaId: mediaUrl(l.media_id), alt: l.alt }))
+        .filter((l): l is { mediaId: string; alt: string } => l.mediaId !== null)
+    : (branding?.trust_logos ?? []).map((l, i) => ({
+        mediaId: l.url,
+        alt: `${siteMark} logo ${i + 1}`,
+      }));
+}
+
 function renderTrustStripRegion(
   t: FrameTrustStripConfig,
   design: DefaultFunnelDesign,
   branding: SiteBranding | null,
 ): string {
   if (!t.enabled) return "";
-  const siteMark =
-    branding !== null && branding.site_name.trim() !== "" ? branding.site_name : CMS_FALLBACK_LOGO_TEXT;
-  const logos =
-    t.source === "manual"
-      ? t.logos
-          .map((l) => ({ mediaId: mediaUrl(l.media_id), alt: l.alt }))
-          .filter((l): l is { mediaId: string; alt: string } => l.mediaId !== null)
-      : (branding?.trust_logos ?? []).map((l, i) => ({
-          mediaId: l.url,
-          alt: `${siteMark} logo ${i + 1}`,
-        }));
+  const logos = trustStripLogos(t, branding);
   if (logos.length === 0) return "";
-  const strip = renderLogoStrip(frameNode("LogoStrip", "frame_trust", { logos }), design);
+  const strip = renderLogoStrip({
+    ...frameNode("LogoStrip", "frame_trust", { logos }), logoDimensions: branding?.logoDimensions,
+  }, design);
   const classes = `lg-frame-trust lg-frame-trust--${t.mobile} lg-frame-trust--pos-${t.placement}`;
   return region("trust_strip", classes, strip);
 }
@@ -672,7 +679,8 @@ function renderBenefitRegion(b: FrameBenefitBarConfig, design: DefaultFunnelDesi
 // mark, else the CMS mark — frame chrome (FooterBar has no logo slot).
 function renderFooterLogo(branding: SiteBranding | null, height: number): string {
   if (branding !== null && branding.logo_url !== null && branding.logo_url !== "") {
-    return `<img class="lg-frame-footer-logo" ${funnelImageAttrs(branding.logo_url, branding.site_name, height * 3, height)} loading="lazy" decoding="async">`;
+    const width = logoWidth(branding.logo_url, height, branding.logoDimensions);
+    return `<img class="lg-frame-footer-logo" ${funnelImageAttrs(branding.logo_url, branding.site_name, width, height)} loading="lazy" decoding="async">`;
   }
   const mark = branding !== null && branding.site_name.trim() !== "" ? branding.site_name : CMS_FALLBACK_LOGO_TEXT;
   return `<span class="lg-frame-footer-logo-text">${escapeHtml(mark)}</span>`;
@@ -883,14 +891,13 @@ function renderFreeTextEntry(entry: FrameFreeTextEntry): string {
 // through mediaUrl; safe url refs pass straight through — SVG upload pipeline
 // is P5c). Desktop row / mobile grid presets are CSS (styles.ts) keyed off the
 // layout class. Page targeting + alignment as for free text.
-function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesign): string {
-  if (!cfg.enabled) return "";
+function brandLogoItems(cfg: FrameBrandLogosConfig) {
   // R2 F-2 — CARRY the per-logo `size`. It was saved by the admin's Logo-size
   // select and hydrated back into it, but this map dropped it before
   // renderLogoStrip ever saw it, so the operator's Small/Medium/Large chose
   // nothing. `size` now rides through to the strip's per-image modifier class
   // (presets.ts logoStripLogos); an item with no size is unchanged.
-  const logos = (cfg.items ?? [])
+  return (cfg.items ?? [])
     .map((it): { mediaId: string; alt: string; size?: string } | null => {
       const src = isNonEmptyStr(it.media_id)
         ? mediaUrl(it.media_id as string)
@@ -900,8 +907,14 @@ function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesig
       return src === null ? null : { mediaId: src, alt: it.alt, size: it.size };
     })
     .filter((l): l is { mediaId: string; alt: string; size?: string } => l !== null);
+}
+
+function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesign, dimensions?: LogoDimensions): string {
+  const logos = brandLogoItems(cfg);
   if (logos.length === 0) return "";
-  const strip = renderLogoStrip(frameNode("LogoStrip", "frame_brand_logos", { logos }), design, true);
+  const strip = renderLogoStrip({
+    ...frameNode("LogoStrip", "frame_brand_logos", { logos }), logoDimensions: dimensions,
+  }, design, true);
   const gating = pageTargetGating(cfg.pages);
   const classes = `lg-frame-brand-logos lg-frame-brand-logos--${cfg.layout}` + alignClass(cfg.align);
   return region("brand_logos", classes, strip, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);
@@ -1111,23 +1124,47 @@ function footerInlineBody(block: FrameFooterBlock): string {
 // default, the existing renderFooterLogo ladder) or "manual" (a media-
 // library ref or a SAFE_HREF_RE-gated direct URL — R2 minor-6 defense in
 // depth over frames.ts's STORE-time gate on the SAME field).
-function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null, height: number): string {
-  if (block.logo_source === "manual") {
-    // R2 P3 FIX-FIRST (MINOR-10) — close the asymmetry R2 minor-6 forbids:
-    // `logo_url` was SAFE_HREF_RE-gated here but its sibling `logo_media_id`
-    // rode mediaUrl() ungated, so the media leg was the one src on this
-    // element with no render-time check. mediaUrl's own output is a /media/…
-    // path, so the gate is a no-op for every real media id — it simply means
-    // NEITHER sibling can reach `src` unchecked.
-    const mediaResolved = mediaUrl(block.logo_media_id ?? null);
-    const fromMedia = isNonEmptyStr(mediaResolved) && SAFE_HREF_RE.test(mediaResolved.trim()) ? mediaResolved : null;
-    const rawUrl = block.logo_url;
-    const fromUrl = isNonEmptyStr(rawUrl) && SAFE_HREF_RE.test(rawUrl.trim()) ? rawUrl : null;
-    const src = fromMedia ?? fromUrl;
-    if (src !== null) {
-      const alt = isNonEmptyStr(block.logo_alt) ? block.logo_alt : branding?.site_name ?? CMS_FALLBACK_LOGO_TEXT;
-      return `<img class="lg-frame-footer2-logo-img" ${funnelImageAttrs(src, alt, height * 3, height)} loading="lazy" decoding="async">`;
+function manualFooterLogoUrl(block: FrameFooterBlock): string | null {
+  if (block.logo_source !== "manual") return null;
+  const mediaResolved = mediaUrl(block.logo_media_id ?? null);
+  const fromMedia = isNonEmptyStr(mediaResolved) && SAFE_HREF_RE.test(mediaResolved.trim()) ? mediaResolved : null;
+  const rawUrl = block.logo_url;
+  const fromUrl = isNonEmptyStr(rawUrl) && SAFE_HREF_RE.test(rawUrl.trim()) ? rawUrl : null;
+  return fromMedia ?? fromUrl;
+}
+
+// Use the same effective frame and source ladders as the four logo regions.
+export function frameLogoUrls(frame: EffectiveFrameConfig, branding: SiteBranding | null): (string | null)[] {
+  const urls: (string | null)[] = [];
+  if (frame.header.enabled) {
+    const { logoUrl } = logoNodeProps(frame.header, branding);
+    if (typeof logoUrl === "string") urls.push(logoUrl);
+  }
+  if (frame.trust_strip.enabled) {
+    for (const logo of trustStripLogos(frame.trust_strip, branding)) urls.push(logo.mediaId);
+  }
+  if (frame.brand_logos?.enabled) {
+    for (const logo of brandLogoItems(frame.brand_logos)) urls.push(mediaUrl(logo.mediaId));
+  }
+  const footer = frame.footer;
+  if (footer.enabled && footer.show_on !== "never") {
+    const siteLogo = branding?.logo_url ?? null;
+    if (footer.blocks?.length) {
+      for (const block of footer.blocks) {
+        if (block.type === "logo") urls.push(manualFooterLogoUrl(block) ?? siteLogo);
+      }
+    } else if (footer.show_logo) {
+      urls.push(siteLogo);
     }
+  }
+  return urls;
+}
+
+function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null, height: number): string {
+  const src = manualFooterLogoUrl(block);
+  if (src !== null) {
+    const alt = isNonEmptyStr(block.logo_alt) ? block.logo_alt : branding?.site_name ?? CMS_FALLBACK_LOGO_TEXT;
+    return `<img class="lg-frame-footer2-logo-img" ${funnelImageAttrs(src, alt, logoWidth(src, height, branding?.logoDimensions), height)} loading="lazy" decoding="async">`;
   }
   return renderFooterLogo(branding, height);
 }
@@ -1337,11 +1374,12 @@ function renderSlotElements(
   frame: EffectiveFrameConfig,
   design: DefaultFunnelDesign,
   slot: FrameFreeTextEntry["slot"],
+  dimensions?: LogoDimensions,
 ): string {
   const parts: string[] = [];
   for (const ft of frame.free_text ?? []) if (ft.slot === slot) parts.push(renderFreeTextEntry(ft));
   const bl = frame.brand_logos;
-  if (bl !== undefined && bl.enabled && (bl.slot ?? "below_section") === slot) parts.push(renderBrandLogos(bl, design));
+  if (bl !== undefined && bl.enabled && (bl.slot ?? "below_section") === slot) parts.push(renderBrandLogos(bl, design, dimensions));
   for (const tr of frame.trust_rows ?? []) if ((tr.slot ?? "below_section") === slot) parts.push(renderTrustRow(tr));
   // Round-4 P5a follow-on (10G / Image24): first-class placed images.
   for (const img of frame.images ?? []) if (img.slot === slot) parts.push(renderImageElement(img));
@@ -1399,10 +1437,10 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
 
   // Round-4 P5a — authorable element slots (all "" when unauthored → the
   // composition below is byte-identical for a pre-P5a frame).
-  const aboveHeaderEls = renderSlotElements(frame, design, "above_header");
-  const aboveSectionEls = renderSlotElements(frame, design, "above_section");
-  const belowSectionEls = renderSlotElements(frame, design, "below_section");
-  const belowFooterEls = renderSlotElements(frame, design, "below_footer");
+  const aboveHeaderEls = renderSlotElements(frame, design, "above_header", branding?.logoDimensions);
+  const aboveSectionEls = renderSlotElements(frame, design, "above_section", branding?.logoDimensions);
+  const belowSectionEls = renderSlotElements(frame, design, "below_section", branding?.logoDimensions);
+  const belowFooterEls = renderSlotElements(frame, design, "below_footer", branding?.logoDimensions);
   const ctaUnderHeader = renderCtasAtSlot(frame, "under_header");
   const ctaSectionBottom = renderCtasAtSlot(frame, "section_bottom");
   const ctaFooter = renderCtasAtSlot(frame, "footer");
