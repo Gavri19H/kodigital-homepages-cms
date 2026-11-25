@@ -6,10 +6,11 @@ import { addSite, createDb, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 const site = "guides";
 const url = "https://guides.example/guide?utm_source=paper";
-// rendered at the Stage 4 merge 66416747 under TZ=UTC; the Stage 2 byte-identity proof is on perf/p2-fast-builds
+// Stage 4 baseline at 66416747 under TZ=UTC. The Stage 2 byte-identity proof is on perf/p2-fast-builds.
+// P5-D adds the shared vitals beacon and page type to those bodies, also measured under TZ=UTC.
 // At 7dfb84fc the listicle reads alone took 11 rounds for the inner shell and 13 for the visitor.
-const innerDigest = "73bc120ec3be62d1432c6363d4f27b81f378f2d7c4115bc764c2f9aabf860ec2";
-const visitorDigest = "9a12ae0dcd5b2206b7335ed1c5fbe531f4f9d460d92f02365c4d8af66758ff61";
+const innerDigest = "47bc0aec69416ce71355c28a25df28f1c66a35d84a92a07c72f7c3af63fca1dc";
+const visitorDigest = "d179d797a120f36dcb35d015978f3ab871dd2643b08c3e01846182233df28c40";
 const hostRead = expect.stringContaining("FROM domains");
 const redirectRead = expect.stringContaining("FROM redirects");
 const versionRead = expect.stringContaining("FROM listicle_articles a");

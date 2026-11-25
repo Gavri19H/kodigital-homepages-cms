@@ -75,6 +75,8 @@ it.each([["text/html", "human"], ["text/markdown", "md"]])(
     expect(timing).toMatch(/\bbuild;dur=\d+/);
     expect(timing).toMatch(/\bd1;dur=\d+;desc="rounds=[1-9]\d* calls=[1-9]\d* /);
     expect(timing).not.toContain("gw-inner");
+    expect(timing?.split(", ").filter(entry => entry.startsWith("edge;")))
+      .toEqual(variant === "human" ? ['edge;desc="MISS"'] : []);
     expect(binding.mock.calls.map(([{ props }]) => props.variantKey)).toEqual(["snap"]);
     expect(put).not.toHaveBeenCalled();
 
@@ -123,7 +125,7 @@ it.each([
       expect(timing).toMatch(/gw-inner;dur=\d+/);
       expect(timing).not.toContain("gw-direct");
     } else {
-      expect(timing).toBeNull();
+      expect(timing).toBe(`edge;desc="${status}"`);
     }
     expect(await response.text()).toContain(headline);
   }

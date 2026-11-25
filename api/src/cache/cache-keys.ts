@@ -35,7 +35,7 @@
 // v3 (23 Nov 2026, X06 SEO fixes): the homepage structured data is wrapped
 // once, share pictures are full web addresses, and Category/About/legal pages
 // carry their own description.
-export const TEMPLATE_VERSION = 3 as const;
+export const TEMPLATE_VERSION = 4 as const;
 
 // Namespace prefixes — these are the wire identifiers that appear at the
 // start of every cache key. Keep them in sync with the field_contract.fields

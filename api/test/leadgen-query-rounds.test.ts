@@ -205,12 +205,12 @@ function digest(body: string) {
 }
 
 // Pin the full visitor and edge-selected shells, including the early attempt
-// and the v17 runtime retry. At 7dfb84fc the visitor shell took 22 statements / 22
+// kickoff, v17 runtime retry and inline vitals beacon. At 7dfb84fc the visitor shell took 22 statements / 22
 // rounds, the edge-selected shell 20 / 20 and the signed attempt 23 / 23.
-const visitorHtmlHash = "d777e070ab15b68b3c4a9e9a7ef4f6568e3d8b9995090203954b47ca29318627";
+const visitorHtmlHash = "1e15e0a07bd87ea61c4285e03bf74ee572a738762541f364288ca5fe3afed5f2";
 it.each([
   { path: "visitor", sha256: visitorHtmlHash, statements: 19, rounds: 8, rules: 1 },
-  { path: "lg:", sha256: "c72dff01e0d3b5243c6ed8f84cb33ad8a49f2fc7b6d89958ae557cc655d7f413",
+  { path: "lg:", sha256: "d98fbcd610e26937b1d507832e6712483fc20e90f6ce83f419b6caf806f4d871",
     statements: 4, rounds: 3, rules: 0 },
 ])("serves the pinned cold $path shell", async ({ path, sha256, statements, rounds, rules }) => {
   const res = await request(landing, path === "lg:" ? publicId("lgn", 2) : undefined);

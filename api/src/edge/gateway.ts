@@ -10,7 +10,7 @@ import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
 import publicRouter, { acceptPrefersMarkdown } from "../public/router";
 import { normalizeHostname } from "../safety/protected-domains";
-import { isAdminHost, type SiteContext } from "../site/site-context";
+import { isAdminHost, resolveSiteByHostname, type SiteContext } from "../site/site-context";
 import { edgeBotVariant } from "./bot";
 import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gateway";
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
@@ -22,6 +22,7 @@ import { parseSiteSnapshot } from "./snapshot";
 import { seedStaticAssets, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
 import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
+import { handleVitals } from "./vitals";
 
 interface PageExports {
   PublicPage(options: { props: PublicPageProps }): { fetch(request: Request): Promise<Response> };
@@ -74,6 +75,9 @@ const fixedPages = new Set([
 ]);
 const otherAppHeads = new Set(["newsletter", "lc", "lst-cand", "v"]);
 const leadgenRuntimeHeads = new Set(["attempt", "ck", "auction", "track", "lc", "pb", "runtime", "config", "px"]);
+const edgeMissStatuses = new Set(["MISS", "EXPIRED", "DYNAMIC", "BYPASS", "DIRECT"]);
+const edgeMissTiming = 'edge;desc="MISS"';
+const htmlContentType = /^text\/html(?:\s*;|$)/i;
 // The loopback routes by Host. Forwarding, method and version overrides can also
 // partition Workers Cache entries for an otherwise identical GET.
 const innerHeaderExclusions = [
@@ -332,8 +336,8 @@ async function serveCachedPage(
   if (needsLiveFallback(inner)) return null;
 
   let response = inner;
-  const publicHtml = inner.status === 200 && !listicle && !leadgen &&
-    /^text\/html(?:\s*;|$)/i.test(inner.headers.get("Content-Type") ?? "") &&
+  const isHtml = htmlContentType.test(inner.headers.get("Content-Type") ?? "");
+  const publicHtml = inner.status === 200 && !listicle && !leadgen && isHtml &&
     inner.headers.get("Cache-Control")?.startsWith("public,");
   let etag = inner.headers.get("ETag");
   if (publicHtml) {
@@ -369,7 +373,6 @@ async function serveCachedPage(
   if (!timing) headers.delete("Server-Timing");
   for (const name of cmsHeaderNames(headers)) headers.delete(name);
   if (publicHtml && etag !== null) headers.set("ETag", etag);
-  headers.set("x-edge-cache", direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   if (inner.status === 200 && (listicle || leadgen)) {
     // PublicPage maps the degraded quote renderer's no-store to the private edge policy.
@@ -380,9 +383,17 @@ async function serveCachedPage(
   }
   if (direct) headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
   if (!sendBody) void response.body?.cancel().catch(() => {});
-  return new Response(sendBody ? response.body : null, {
+  const page = new Response(sendBody ? response.body : null, {
     headers, status: notModified ? 304 : inner.status, statusText: notModified ? "Not Modified" : inner.statusText,
   });
+  const edgeStatus = direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none";
+  page.headers.set("x-edge-cache", edgeStatus);
+  if (isHtml && (edgeStatus === "HIT" || edgeMissStatuses.has(edgeStatus))) {
+    const entry = edgeStatus === "HIT" ? 'edge;desc="HIT"' : edgeMissTiming;
+    if (timing) timing.inner += ", " + entry;
+    else page.headers.set("Server-Timing", entry);
+  }
+  return page;
 }
 
 export async function gatewayFetch(
@@ -390,10 +401,10 @@ export async function gatewayFetch(
 ): Promise<Response> {
   // Use Hono's route decoding so an escaped reserved head has the same boundary.
   const path = getPath(request);
-  if (path !== "/__edge/tick") request = perfstageRequest(request, env);
+  if (path !== "/__edge/tick" && path !== "/v/vitals") request = perfstageRequest(request, env);
   const response = await dispatchGatewayRequest(request, env, ctx, honoFetch, path);
   if (request.method === "GET" && response.status === 200 &&
-      /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
+      htmlContentType.test(response.headers.get("Content-Type") ?? "")) {
     await seedStaticAssets(new URL(request.url).origin, env);
   }
   if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return response;
@@ -407,6 +418,21 @@ export async function gatewayFetch(
 async function dispatchGatewayRequest(
   request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch, path: string,
 ): Promise<Response> {
+  if (path === "/v/vitals") {
+    return handleVitals(request, env, ctx, async url => {
+      try {
+        const pages = ctx?.exports as PageExports | undefined;
+        if (ctx && typeof pages?.PublicPage === "function") {
+          const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0 });
+          if (host) return host.snapshot.siteId;
+        }
+      } catch {
+        // A failed snapshot sends page views to the live renderer. Count their beacons too.
+      }
+      const site = await resolveSiteByHostname(env.DB, url.hostname, env);
+      return site?.site_id ?? null;
+    });
+  }
   if (path === "/__edge/tick") {
     const headers = { "Cache-Control": EDGE_CACHE_CONTROL.private };
     if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
@@ -471,6 +497,15 @@ async function dispatchGatewayRequest(
   } catch {
     // Snapshot, binding, and rendering failures all use the original visitor URL and method.
   }
-  const live = honoFetch(request, env, ctx);
-  return timing ? withGatewayTiming(await live, timing, true) : live;
+  const live = await honoFetch(request, env, ctx);
+  const publicHtml = live.status === 200 && htmlContentType.test(live.headers.get("Content-Type") ?? "") &&
+    !isAdminHost(new URL(request.url).hostname, env);
+  if (timing) {
+    if (publicHtml) timing.inner += ", " + edgeMissTiming;
+    return withGatewayTiming(live, timing, true);
+  }
+  if (!publicHtml) return live;
+  const page = new Response(live.body, live);
+  page.headers.set("Server-Timing", edgeMissTiming);
+  return page;
 }

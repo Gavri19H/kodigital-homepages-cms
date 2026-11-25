@@ -56,6 +56,9 @@ case "$target/$mode" in
   perfstage/gradual|perfstage/rehearsal) worker+=-perfstage ;;
   *) fail "Invalid release $target/$mode (rehearsal requires perfstage)" ;;
 esac
+release_sha=${GITHUB_SHA:-$(git rev-parse HEAD)} || fail "Could not resolve the release SHA from git HEAD"
+release_tag=${release_sha:0:12}
+[[ -n $release_tag ]] || fail "Missing release SHA from GITHUB_SHA or git HEAD"
 if [[ $mode == rehearsal ]]; then minutes=12; fi
 [[ -r scripts/perf/edge-probe.sh && -s scripts/perf/urls.txt ]] || fail "Missing probe or URL list"
 stage_host=
@@ -326,7 +329,7 @@ previous=$(jq -er 'last.versions | map(select(.percentage > 0)) | select(length 
 printf 'PREVIOUS_VERSION=%s\n' "$previous"
 
 next_stage upload
-WRANGLER_OUTPUT_FILE_PATH="$tmp/upload.jsonl" npx wrangler versions upload --env "$target"
+WRANGLER_OUTPUT_FILE_PATH="$tmp/upload.jsonl" npx wrangler versions upload --env "$target" --tag "$release_tag"
 new=$(jq -ser 'map(select(.type == "version-upload")) | select(length == 1)
   | .[0].version_id | strings | select(length > 0)' "$tmp/upload.jsonl") || fail "Missing uploaded version ID"
 [[ $new != "$previous" ]] || fail "Upload returned the active version ID"

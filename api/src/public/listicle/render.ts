@@ -8,6 +8,7 @@
 
 import { listicleBlocksToHtml, offerRefString, GOVERNED_LINK_REL } from "../../editor/listicle-blocks";
 import { escapeHtml, isSafeUrl } from "../../editor/sanitize";
+import { VITALS_BEACON } from "../../edge/vitals";
 import { responsiveImg } from "../templates/responsive-img";
 import { renderCustomHead, renderConsentHead } from "../../settings/custom-html";
 import { getLayout, type ListiclePageVm } from "./layouts/registry";
@@ -206,7 +207,7 @@ export function renderSectionHeading(
   return `<div class="lst-heading-wrap">${inner}</div>`;
 }
 
-function renderSectionImage(section: RenderSectionRow): string {
+function renderSectionImage(section: RenderSectionRow, eagerImage = false): string {
   const url = sectionImageUrl(section.image_json);
   if (url === "" || !isSafeUrl(url)) return "";
   const img = responsiveImg({
@@ -214,7 +215,8 @@ function renderSectionImage(section: RenderSectionRow): string {
     alt: section.headline_text,
     width: CONTENT_WIDTH_PX,
     height: SECTION_IMG_HEIGHT_PX,
-    loading: "lazy",
+    loading: eagerImage ? "eager" : "lazy",
+    fetchpriority: eagerImage ? "high" : undefined,
     sizes: "(max-width: 999px) 100vw, 968px",
   });
   if (img === "") return "";
@@ -243,10 +245,11 @@ export function renderSectionCandidateHtml(
   ordinal: number,
   ctx: GovernedUrlContext,
   offerPublicIdByRef: ReadonlyMap<string, string>,
+  opts: { eagerImage?: boolean } = {},
 ): string {
   const parts = [
     renderSectionHeading(section, ordinal),
-    renderSectionImage(section),
+    renderSectionImage(section, opts.eagerImage),
     annotateChoiceGroupColumns(listicleBlocksToHtml(section.content_json)),
   ].join("");
   return rewriteGovernedAnchors(parts, ctx, offerPublicIdByRef);
@@ -422,6 +425,7 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
         ordinal,
         ctx,
         input.offerPublicIdByRef,
+        { eagerImage: page.page_index === 0 },
       );
       const body = layout.renderSection(sectionHtml);
       if (def !== null && cand.public_id === def.public_id) {
@@ -595,7 +599,7 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
   const lazyScript = lazyCandidateIds.length > 0 ? `<script>${LAZY_HYDRATE_SCRIPT}</script>` : "";
 
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-pt="listicle">
 <head>
 ${head}
 </head>
@@ -606,6 +610,7 @@ ${renderLegalDisclosureBlock()}
 ${renderListicleFooter(input.brand, input.hostname)}
 ${lazyScript}
 ${beaconScriptTag()}
+${VITALS_BEACON}
 </body>
 </html>`;
 

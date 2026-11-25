@@ -606,7 +606,7 @@ function makeScheduledCtx(): ExecutionContext {
 }
 
 describe("PR #28 finding #3(c) — scheduled() runs publish + provisioning independently", () => {
-  const controller = {} as unknown as ScheduledController;
+  const controller: ScheduledController = { cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 25, 12, 1), noRetry() {} };
 
   it("a thrown provisioning-drive error does NOT prevent processScheduledArticles, and the handler never rejects [api/test/provisioning-drive-lease.test.ts]", async () => {
     const probe: IsoProbe = { publishQueried: false, driveQueried: false };

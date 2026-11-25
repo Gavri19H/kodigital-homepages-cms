@@ -639,7 +639,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
       addArticle("Site-B");
       throw new Error("pending purge interrupted");
     });
-    const controller = { cron: "* * * * *", scheduledTime: seconds * 1000, noRetry() {} } as ScheduledController;
+    const controller: ScheduledController = { cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 25, 12, 1), noRetry() {} };
     await worker.scheduled!(controller, env, ctx);
     expect(runEdgePurgeCron).toHaveBeenCalledWith(env, ctx);
     expectSweep(["site:site-b"], ["Site-B"]);

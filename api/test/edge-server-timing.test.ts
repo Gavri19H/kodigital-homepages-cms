@@ -68,7 +68,7 @@ function countingDb() {
 }
 
 // Model the Workers Cache boundary. A HIT replays the header stored on the MISS.
-function cachedGateway() {
+function cachedGateway(missStatus: string | null = "MISS") {
   const fixture = countingDb();
   const env = buildEnv(fixture.db);
   env.PERFSTAGE = "true";
@@ -85,8 +85,9 @@ function cachedGateway() {
     const batch = db.batch([title(), db.prepare(creditSql).bind("Zoë")]);
     clock += 5;
     const [titles, credits] = await batch;
-    return new Response(JSON.stringify([row, list.results, titles!.results, credits!.results]), {
-      headers: { "Content-Type": "application/json", ETag: '"v2"', "Server-Timing": "renderer;dur=1" },
+    const body = `<pre>${JSON.stringify([row, list.results, titles!.results, credits!.results])}</pre>`;
+    return new Response(body, {
+      headers: { "Content-Type": "text/html; charset=utf-8", ETag: '"v2"', "Server-Timing": "renderer;dur=1" },
     });
   }
   vi.spyOn(app, "honoFetch").mockImplementation((_request, bindings) => {
@@ -100,7 +101,8 @@ function cachedGateway() {
         const stored = cache.get(props.variantKey);
         const response = stored?.clone() ?? await new PublicPage({ ...ctx, props }, env).fetch(request);
         if (!stored) cache.set(props.variantKey, response.clone());
-        response.headers.set("cf-cache-status", stored ? "HIT" : "MISS");
+        const status = stored ? "HIT" : missStatus;
+        if (status !== null) response.headers.set("cf-cache-status", status);
         clock += props.variantKey === "snap" ? 3 : 2;
         return response;
       },
@@ -134,8 +136,9 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(miss.status).toBe(200);
   expect(miss.headers.get("x-edge-cache")).toBe("MISS");
   expect(timingEntries(miss)).toEqual([
-    'gw-snap;dur=3;desc="MISS"', ...snapMetrics, "gw-inner;dur=27", ...pageMetrics,
+    'gw-snap;dur=3;desc="MISS"', ...snapMetrics, "gw-inner;dur=27", ...pageMetrics, 'edge;desc="MISS"',
   ].sort());
+  expect(miss.headers.get("Server-Timing")).toMatch(/, edge;desc="MISS"$/);
   expect(timingEntries(cache.get("snap")!)).toEqual([...snapMetrics].sort());
   expect(timingEntries(cache.get("human")!)).toEqual([...pageMetrics].sort());
   expect(await miss.bytes()).toEqual(await plainPage.bytes());
@@ -148,7 +151,7 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
 });
 
-it.each([undefined, "false", "TRUE"])("omits timings from production misses, stored snapshots and hits with PERFSTAGE=%s", async flag => {
+it.each([undefined, "false", "TRUE"])("exposes only the current edge outcome in production with PERFSTAGE=%s", async flag => {
   const { env, visit, cache, calls } = cachedGateway();
   env.APP_ENV = "production";
   env.PERFSTAGE = flag;
@@ -156,7 +159,7 @@ it.each([undefined, "false", "TRUE"])("omits timings from production misses, sto
   const miss = await visit({ headers: { "x-perfstage-direct": "1" } });
   expect(miss.status).toBe(200);
   expect(miss.headers.get("x-edge-cache")).toBe("MISS");
-  expect(miss.headers.get("Server-Timing")).toBeNull();
+  expect(miss.headers.get("Server-Timing")).toBe('edge;desc="MISS"');
   const bytes = await miss.bytes();
   for (const key of ["snap", "human"]) {
     const stored = cache.get(key)!;
@@ -167,10 +170,26 @@ it.each([undefined, "false", "TRUE"])("omits timings from production misses, sto
   calls.length = 0;
   const hit = await visit();
   expect(hit.headers.get("x-edge-cache")).toBe("HIT");
-  expect(hit.headers.get("Server-Timing")).toBeNull();
+  expect(hit.headers.get("Server-Timing")).toBe('edge;desc="HIT"');
   expect(await hit.bytes()).toEqual(bytes);
   expect(measure).not.toHaveBeenCalled();
   expect(calls).toHaveLength(0);
+});
+
+it.each([
+  ["EXPIRED", 'edge;desc="MISS"'], ["DYNAMIC", 'edge;desc="MISS"'], ["BYPASS", 'edge;desc="MISS"'],
+  [null, null], ["REVALIDATED", null],
+] as const)("reports the page outcome for cf-cache-status %s", async (status, entry) => {
+  const { env, visit, cache } = cachedGateway(status);
+  delete env.PERFSTAGE;
+  const page = await visit();
+  expect(page.headers.get("x-edge-cache")).toBe(status ?? "none");
+  expect(page.headers.get("Server-Timing")).toBe(entry);
+
+  env.PERFSTAGE = "true";
+  cache.delete("human");
+  const staged = await visit();
+  expect(timingEntries(staged)?.filter(metric => metric.startsWith("edge;"))).toEqual(entry ? [entry] : []);
 });
 
 it("evicts snapshot versions after eight builds and reuses each retained content hash", async () => {
@@ -259,6 +278,7 @@ it.each([
     ...(rebuildSnap ? snapMetrics : []),
     rebuildPage ? "gw-inner;dur=27" : "gw-inner;dur=2",
     ...(rebuildPage ? pageMetrics : []),
+    rebuildPage ? 'edge;desc="MISS"' : 'edge;desc="HIT"',
   ].sort());
   expect(next.headers.get("x-edge-cache")).toBe(rebuildPage ? "MISS" : "HIT");
   expect(await next.bytes()).toEqual(bytes);
@@ -274,7 +294,7 @@ it("keeps current gateway timings on bodyless HEAD and 304 hits", async () => {
   for (const response of [head, validated]) {
     expect(response.body).toBeNull();
     expect(response.headers.get("ETag")).toBe('"v2"');
-    expect(timingEntries(response)).toEqual(["gw-inner;dur=2", 'gw-snap;dur=3;desc="HIT"']);
+    expect(timingEntries(response)).toEqual(['edge;desc="HIT"', "gw-inner;dur=2", 'gw-snap;dur=3;desc="HIT"']);
   }
 });
 
@@ -291,6 +311,45 @@ it("shows the failed snapshot build on a live fallback and skips unrelated route
   const live = await visit({}, "/health");
   expect(live.headers.has("Server-Timing")).toBe(false);
   expect(fallback).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  ["missing snapshot", false], ["inner 503", false], ["missing snapshot", true], ["inner 503", true],
+] as const)("reports a live HTML MISS after %s with perfstage=%s", async (failure, staged) => {
+  const { env, visit, fallback, calls } = cachedGateway();
+  env.APP_ENV = staged ? "staging" : "production";
+  env.PERFSTAGE = staged ? "true" : undefined;
+  if (failure === "missing snapshot") vi.spyOn(snapshots, "buildSiteSnapshot").mockResolvedValueOnce(null);
+  else vi.mocked(app.honoFetch).mockReturnValueOnce(new Response(null, { status: 503 }));
+
+  const bytes = new TextEncoder().encode(`<h1>${headline}</h1>`);
+  const live = new Response(bytes, { headers: {
+    "Content-Type": "text/html; charset=utf-8", "Server-Timing": "live;dur=4",
+    "Cache-Control": "private, no-store", "Set-Cookie": "ko_sid=original",
+  } });
+  fallback.mockReturnValueOnce(live);
+  const get = vi.spyOn(env.CACHE, "get");
+  const put = vi.spyOn(env.CACHE, "put");
+  const response = await visit();
+  expect(fallback).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(200);
+  expect(await response.bytes()).toEqual(bytes);
+  expect(live.headers.get("Server-Timing")).toBe("live;dur=4");
+  const headers = new Headers(response.headers);
+  const timing = headers.get("Server-Timing");
+  if (staged) {
+    const entries = timing?.split(", ");
+    expect(entries?.slice(0, 2)).toEqual(["live;dur=4", 'gw-snap;dur=3;desc="MISS"']);
+    expect(entries).toContain(failure === "missing snapshot" ? "gw-inner;dur=0" : "gw-inner;dur=2");
+    expect(entries?.at(-1)).toBe('edge;desc="MISS"');
+  } else {
+    expect(timing).toBe('edge;desc="MISS"');
+  }
+  headers.set("Server-Timing", "live;dur=4");
+  expect([...headers]).toEqual([...live.headers]);
+  expect(calls).toHaveLength(failure === "missing snapshot" ? 0 : 8);
+  expect(get).not.toHaveBeenCalled();
+  expect(put).not.toHaveBeenCalled();
 });
 
 it("preserves D1 results and errors when metadata or the clock is unavailable", async () => {

@@ -1,0 +1,12 @@
+{
+  "lighthouse": { "mobile": 95, "desktop": 100 },
+  "pages": [
+    { "type": "home", "path": "/", "selector": ".picks-grid img", "htmlBytes": 34816, "brotliBytes": 6144 },
+    { "type": "article", "path": "/article/morning-light-rituals", "selector": ".article-hero-img img", "htmlBytes": 22528, "brotliBytes": 6144 },
+    { "type": "category", "path": "/category/wellness", "selector": ".home-grid--category .card", "htmlBytes": 16384, "brotliBytes": 4096 },
+    { "type": "tag", "path": "/tag/editors-picks", "selector": ".home-grid--tag .card", "htmlBytes": 16384, "brotliBytes": 4096 },
+    { "type": "page", "path": "/page/our-desk", "selector": ".page-content p", "htmlBytes": 12288, "brotliBytes": 4096 },
+    { "type": "listicle", "path": "/morning-guide", "selector": ".lst-section h3", "htmlBytes": 34816, "brotliBytes": 10240 },
+    { "type": "quote", "path": "/lg/home", "selector": "[data-lg-section] .lg-headline", "htmlBytes": 104448, "brotliBytes": 16384, "quoteRuntimeBytes": 57344, "totalBytes": 307200 }
+  ]
+}

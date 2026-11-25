@@ -2,6 +2,7 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   MEDIA: R2Bucket;
+  VITALS_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
   PERFSTAGE?: string;
   ADMIN_ALLOW_IP?: string;
@@ -65,6 +66,9 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
   PREVIEW_SECRET?: string;
+  SLACK_WEBHOOK_URL?: string;
+  SLACK_BOT_TOKEN?: string;
+  SLACK_ALERT_CHANNEL?: string;
   CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
   CLOUDFLARE_CACHE_API_TOKEN?: string;
   ALLOWED_CF_SERVICE_TOKEN_IDS?: string;
