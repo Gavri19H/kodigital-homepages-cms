@@ -588,7 +588,7 @@ export function selectedMarkRules(
 //   * the typed-answer box (owner decision Q6), its "Go to next" Continue and
 //     the "Search makes…" box span the whole card / button grid row;
 //   * Make logo cards: a fixed 80×40 logo box (no layout jump while the small
-//     resized picture loads; 64×32 on a phone), the "Other make" card full
+//     resized picture loads; 64×32 on a phone; never wider than its card), the "Other make" card full
 //     width below the logo cards, and 2 cards per row at the phone breakpoint
 //     (other card grids keep today's 1 per row).
 // Every selector is (0,3,0) or more so it beats the base sheet's scoped (0,2,0)
@@ -602,8 +602,26 @@ export function vehicleQuestionCss(design: DefaultFunnelDesign | EffectiveFunnel
       ".lg-input[data-lg-vtext][data-lg-input],.lg-input.lg-dropdown-search[data-lg-dropdown-search],.lg-btn.lg-continue[data-lg-vgo]",
       full,
     ) +
-    rule(`${g} .lg-card-logo`, { display: "block", width: "80px", height: "40px", "object-fit": "contain" }) +
-    rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row" }) +
+    // F24 Round 3 (owner 24 Nov 2026): the 80×40 logo box never grows past its
+    // card (4 cards in a ~320px question card are ~75px wide), slim side padding
+    // on logo cards, and a long make name wraps inside its card.
+    rule(`${g} .lg-card-logo`, {
+      display: "block",
+      width: "80px",
+      height: "40px",
+      "max-width": "100%",
+      "object-fit": "contain",
+    }) +
+    rule(`${g} > .lg-card:not(.lg-other-trigger)`, {
+      "min-width": "0",
+      "padding-left": "6px",
+      "padding-right": "6px",
+      "overflow-wrap": "anywhere",
+    }) +
+    // F24 Round 3: the "Other make" card is a one-line row, as tall as a
+    // button (it used to keep the theme's 140px card minimum while the logo
+    // cards above it are "small").
+    rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row", "min-height": design.primaryButton.minHeight }) +
     `@media (max-width: ${design.breakpoints.mobileMax}){` +
     rule(g, { "grid-template-columns": "repeat(2, minmax(0, 1fr))" }) +
     rule(`${g} .lg-card-logo`, { width: "64px", height: "32px" }) +

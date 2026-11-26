@@ -264,6 +264,26 @@ describe("F18 render — no readable list, and everything else unchanged", () =>
       "@media (max-width: 480px){.lg-card-grid.lg-card-grid[data-lg-vlogos]{grid-template-columns:repeat(2, minmax(0, 1fr))}",
     );
   });
+
+  // F24 Round 3 (owner 24 Nov 2026, "logos are escaping the square"): with 4
+  // make cards per row in a ~320px question card, a card is ~75px wide, but
+  // the logo box was a fixed 80×40 — wide logos (Tesla, Subaru, GMC…) spilled
+  // out. The logo box now never grows past its card (object-fit keeps the
+  // logo's shape), logo cards use slim side padding, and a long make name
+  // wraps inside its card instead of running out of it.
+  it("keeps every make logo and name inside its card", () => {
+    const css = vehicleQuestionCss(DESIGN);
+    expect(css).toContain(
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] .lg-card-logo{display:block;width:80px;height:40px;max-width:100%;object-fit:contain}",
+    );
+    expect(css).toContain(
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] > .lg-card:not(.lg-other-trigger){min-width:0;padding-left:6px;padding-right:6px;overflow-wrap:anywhere}",
+    );
+    // …and the "Other make" card is one button-tall row, not a 140px card.
+    expect(css).toContain(
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] > .lg-other-trigger{grid-column:1 / -1;flex-direction:row;min-height:52px}",
+    );
+  });
 });
 
 describe("F18 public config — a vehicle question carries none of its typed data", () => {
@@ -341,14 +361,18 @@ describe("F18 render — \"Go to next\" Sections and the 'Other make' search box
     }
   });
 
-  it("Make on Buttons / Cards: a hidden 'Search makes…' box sits right above the 'Other make' list; Year's 'Older year' and typed 'Other' lists get none", () => {
+  // F24 Round 3 (owner 24 Nov 2026): the box moved from above the list to right below it.
+  it("Make on Buttons / Cards: a hidden 'Search makes…' box sits right below the 'Other make' list; Year's 'Older year' and typed 'Other' lists get none", () => {
     for (const type of ["ButtonAnswerGroup", "IconCardAnswerGrid"] as const) {
       const html = render(make(type), ctxWith(vehicleData()));
       expect(html).toMatch(/data-lg-vehicle="make" data-lg-searchable/);
-      expect(html).toContain(
-        '<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>' +
-          '<select class="lg-input lg-other-select lg-other-panel" data-lg-input data-lg-other-panel hidden aria-label="Other make — choose one">',
+      const list = html.indexOf('<select class="lg-input lg-other-select lg-other-panel" data-lg-input data-lg-other-panel hidden aria-label="Other make — choose one">');
+      const box = html.indexOf(
+        '</select><input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>',
       );
+      expect(list).toBeGreaterThan(-1);
+      expect(box).toBeGreaterThan(list);
+      expect(html.indexOf("<select", list + 1)).toBe(-1);
     }
     expect(render(year("IconCardAnswerGrid"), ctxWith(vehicleData()))).not.toContain("data-lg-dropdown-search");
     const typed = renderComponent({ type: "ButtonAnswerGroup", question_id: "q_t", internal_field: "t", choices: [{ label: "A", value: "a", analytics_id: "a" }], props: { other: { enabled: true, choices: [{ label: "C", value: "c", analytics_id: "c" }] } } }, DESIGN);

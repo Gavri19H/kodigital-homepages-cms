@@ -271,7 +271,7 @@ describeDb("F18 serve.ts — the funnel page with a 'Vehicle database' question"
     expect(first.status).toBe(200);
     expect(media.reads).toEqual([VEHICLE_LIVE_KEY, vehicleMakesKey(SNAPSHOT)]);
     // Make: Toyota (with its logo) and Honda as cards, Acura and Kia under "Other make".
-    // …with the "Search makes…" box over the "Other make" list.
+    // …with the "Search makes…" box under the "Other make" list.
     expect(first.html).toMatch(/data-lg-vehicle="make" data-lg-searchable data-lg-vlogos/);
     expect(first.html).toContain('placeholder="Search makes…"');
     expect(first.html).toContain(`data-lg-choice="448"><img class="lg-card-logo" src="/cdn-cgi/image/height=80,fit=scale-down,format=auto,quality=75/media/${LOGO_KEY}"`);
