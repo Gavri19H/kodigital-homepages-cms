@@ -59,7 +59,7 @@ import {
 } from "./auction-client";
 import { lgSearch, vehicleNames, vehicleQs, vehicleScan } from "./vehicle";
 
-export const LG_ENGINE_VERSION = "18"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
+export const LG_ENGINE_VERSION = "19"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
 const LG_ATTEMPT_URL = "/lg/attempt";
 const SESSION_COOKIE = "ko_sid";

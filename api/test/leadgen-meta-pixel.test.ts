@@ -675,7 +675,7 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     expect(new Set(ids).size).toBe(3);
   });
 
-  it("initializes each carded offer pixel once at first show, including on a funnel without its own pixel", () => {
+  it("initializes only the clicked offer's pixel when the funnel has no pixel", () => {
     const banners: StubAnchor[] = [];
     const run = runShellScript({ funnel_pixel_id: null, click_events: true, fields: { email: "em", zip: "zp" } }, { banners });
     const complete = { event_type: "quote_complete", funnel_attempt_id: "att_1" };
@@ -694,10 +694,11 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     );
     run.hook(complete);
     const user = { external_id: SID, em: "jane@example.com", zp: "90210" };
-    const showCalls = [["dataProcessingOptions", []], ["init", OFFER_PIXEL, user], ["init", otherPixel, user]];
+    const showCalls = [["dataProcessingOptions", []]];
     expect(run.fbq.map(c => c.args)).toEqual(showCalls);
     expect(card.attrs["href"]).toBe("/lg/lc/one?slot=1");
     run.hook(complete);
+    expect(run.fbq.map(c => c.args)).toEqual(showCalls);
     run.click(card);
     const href = new URL(card.attrs["href"]!, "https://example.test");
     const eid = href.searchParams.get("eid");
@@ -705,29 +706,34 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     expect(href.searchParams.getAll("eid")).toEqual([eid]);
     expect(run.fbq.map(c => c.args)).toEqual([
       ...showCalls,
+      ["init", OFFER_PIXEL, user],
       ["trackSingle", OFFER_PIXEL, "Lead", { currency: "USD", value: 12.5 }, { eventID: eid }],
     ]);
   });
 
-  it("retries a failed show-time init on click and initializes the remaining cards at show", () => {
+  it("keeps the click link usable if pixel init throws and initializes the next offer on its own click", () => {
     const otherPixel = "987654321";
     const card = stubAnchor({ href: "/lg/lc/one", "data-lg-px": OFFER_PIXEL });
+    const otherCard = stubAnchor({ href: "/lg/lc/two", "data-lg-px": otherPixel });
     const run = runShellScript({ funnel_pixel_id: null, click_events: true, fields: {} }, {
-      banners: [card, stubAnchor({ "data-lg-px": otherPixel })],
+      banners: [card, otherCard],
     });
     const fbq = run.w["fbq"] as (...args: unknown[]) => void;
     const fbqWithInitFailure = vi.fn(fbq).mockImplementationOnce(() => { throw new Error("init failed"); });
     run.w["fbq"] = fbqWithInitFailure;
     run.hook({ event_type: "quote_complete", funnel_attempt_id: "att_1" });
-    expect(fbqWithInitFailure.mock.calls).toEqual([
-      ["init", OFFER_PIXEL, { external_id: SID }], ["init", otherPixel, { external_id: SID }],
-    ]);
+    expect(fbqWithInitFailure.mock.calls).toEqual([]);
     run.click(card);
-    const eid = new URL(card.attrs["href"]!, "https://example.test").searchParams.get("eid");
-    expect(eid).toMatch(/^lgc_[A-Za-z0-9]{20}$/);
-    expect(fbqWithInitFailure.mock.calls.slice(2)).toEqual([
-      ["init", OFFER_PIXEL, { external_id: SID }],
-      ["trackSingle", OFFER_PIXEL, "Purchase", { currency: "USD" }, { eventID: eid }],
+    const firstLink = new URL(card.attrs["href"]!, "https://example.test");
+    expect(firstLink.pathname).toBe("/lg/lc/one");
+    expect(firstLink.searchParams.get("eid")).toMatch(/^lgc_[A-Za-z0-9]{20}$/);
+    expect(fbqWithInitFailure.mock.calls).toEqual([["init", OFFER_PIXEL, { external_id: SID }]]);
+    run.click(otherCard);
+    const otherEid = new URL(otherCard.attrs["href"]!, "https://example.test").searchParams.get("eid");
+    expect(otherEid).toMatch(/^lgc_[A-Za-z0-9]{20}$/);
+    expect(fbqWithInitFailure.mock.calls.slice(1)).toEqual([
+      ["init", otherPixel, { external_id: SID }],
+      ["trackSingle", otherPixel, "Purchase", { currency: "USD" }, { eventID: otherEid }],
     ]);
   });
 
@@ -942,7 +948,6 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
     run.hook({ event_type: "quote_complete", funnel_attempt_id: "att_1", banner_render_id: "lgbr_FIXED" });
     expect(run.fbq.slice(beforeShow).map(c => c.args)).toEqual([
       ["trackSingle", FUNNEL_PIXEL, "AddToCart", {}, { eventID: expect.stringMatching(/^lga_[A-Za-z0-9]{20}$/) }],
-      ["init", OFFER_PIXEL, { external_id: SID, em: "jane@example.com", ph: "15551234567", fn: "jane", ln: "oneil" }],
     ]);
 
     run.click(anchor);
@@ -950,7 +955,10 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
     const eid = new URL(href, "http://x").searchParams.get("eid")!;
     expect(eid).toMatch(/^lgc_[A-Za-z0-9]{20}$/);
 
-    expect(inits(run.fbq).filter(i => i.pixel === OFFER_PIXEL)).toHaveLength(1);
+    expect(inits(run.fbq).filter(i => i.pixel === OFFER_PIXEL)).toEqual([{
+      pixel: OFFER_PIXEL,
+      user: { external_id: SID, em: "jane@example.com", ph: "15551234567", fn: "jane", ln: "oneil" },
+    }]);
     const browser = tracked(run.fbq).filter((t) => t.pixel === OFFER_PIXEL);
     expect(browser).toEqual([{ pixel: OFFER_PIXEL, event: "Purchase", data: { currency: "USD", value: 6 }, id: eid }]);
 

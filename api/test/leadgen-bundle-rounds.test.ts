@@ -184,7 +184,7 @@ function edgeHeaders() {
 }
 
 // Complete output bytes from 19bc4063 under TZ=UTC, with the attempt kickoff, end-screen CSS
-// and v18 runtime URL. The shell includes the 1fe503ca head script and retry.
+// and v19 runtime URL. The shell includes the 1fe503ca head script and retry.
 // Store them losslessly in this test so parity also covers omitted fields and key order.
 const original = {
   bundle:
@@ -209,7 +209,7 @@ const original = {
     "H4sIAAAAAAACE+1925bjNpLge30FLa+dUpeo1D0zpVL2VJUz7dp1uT2u6unuqanNQ0mUxC6KlEkqL5bznPmIfdkf2F/Y9/2U+ZKNCAAkSIKSeElf+rRn2k4BYEQgEAgEAoHAi8/m7ix42JjaKljbly/w35ptOMtJzXRq2twIDH0TTGo/bt3A" +
     "rEG9acwvX6zNwNBmK8PzTajbBgv9HOr8mWdtgsvdzHX8QLu15pOavXRu2ln/dGvjO8uZu3etm5tvv755+f791dvv3998f3Mz2cHXzc2obvgPzqzemFzuAu+BA/ZMf2LcGVagLcxgtqrXTu3lqREE5noT/JGwPjedmTs3//zDm9fueuM6phPU" +
     "oaLxvPblVl1ruzMjsFyntfLMRaO5gw6u3Pmo9vXV+1oT+2x6/mhnzGbmJhjVjM3GttgHp3/3Xaf22Jx55hwAWYbtj2q+sTZ117OWllNrzozZyhzVHFf3A9cza4+NsWcGW8/BjrTcT39kfcEfCKveGDlb234E8LPVjrekksdGvfH4+OKUs/mF" +
-    "bTmf4DN7UtvAv11jXtMMf1Jj1TUNezIh3nhbIGxtnnbOAUM4TprvzVT12txcmJ4GfPE815vUgpUFZPJfSMgYBv09tHe3QZ2GRgwLDNEEpGm7Bka0gCFGYF7ZJv6qnzCcJ9R376GFuAkw/DEOv0FGt4C5pjN/vbLseZ0aNx6b/Xa7AYSHXSf5" +
+    "bTmf4DN7UtvAv11jXtMMf1Jj1TUNezIh3nhbIGxtnnYuAEM4TprvzVT12txcmJ4GfPE815vUgpUFZPJfSMgYBv09tHe3QZ2GRgwLDNEEpGm7Bka0gCFGYF7ZJv6qnzCcJ9R376GFuAkw/DEOv0FGt4C5pjN/vbLseZ0aNx6b/Xa7AYSHXSf5" +
     "c4DLk9qtZd5tXA86DGQEAGVSu7PmwWoyN2+tmanTj6ZmORYOju7PDNucdGoxGJ47dQNfguC4IJfmPbQKrMA2L6/ujfXGNrV/xVngvzhlpdIIWPBpTcN5BH+vjaV56t8un9+v7XAcfCswdWzWgpra5TMZf7ACLukz13Y9iYjPO1PjfEYTK3gA" +
     "dB9oMi62jmPa+tz0raUzqcFgGVs74MW1j7upMfu09NytM2cAR59fD67Prl+O+a/Oy851bzheABZ9Yawt+2F08s71jJOm/+DDHNK3VvOlB6xq+obj677pWYvx2nL0lWktV8Go027frsa6bi/1jQdd9R4A5qvey8HrWKE+N7xPo8/b191+v81q" +
     "cPY4wejzq/PBV90hK5sZ3hwopH9YydT1YLKNPv+q+9XF1YCV+Vv41PcB3NXZ695LVkgCCe163evudRz3neGvEM/V1XWfQ9gYIAv3/qjd6g48cy2X+msoTRau56NOoshejjqpdvf2qJssgrJeWOYZc2vrI5Lh5j5WhCjaiTLE0U+UIYpkuwXM" +
@@ -339,7 +339,7 @@ const original = {
     "jZD5tB+rNYmQ5k40eL/ycJG056POEDjO29Lmk2esYl80xtKZgjOvN3AAcOoIptM0olFnEiTkBI8nJ5f4b7B++NCAfplsJHF9RTOgXot8LLXGh/bH5hQm/wQK/9iiFYhq3uEAQSc5KJKfBLDvwKYVfUiLWo39FxFEfVr7dTzLcqhb39EDni3L" +
     "v6bcyHXg4voDGpA0MEM8f2+yIwzkL3xaC4LF9Gbt15pELHB0A8SZRCo+72eSKHMN1djhF4vZhj4gYv4YCSpvjk1s3gT+y0ofAQgffOunUJTIEgAOSNL0Got+/rnznIRGB1FqnJ4RTBhSgvkBJjwDRQINE/tjyweFVK8bzSlM+6luND5gbyN8" +
     "eqdJjteF7cKukLCewvLTANMNCfvT9O+gAtDO9uvrBl/zXnTjc9KcL/mAshcLTQ+DxC7bX34JhS2m0YALoJr/2MLsQHVQbUELw9bxeBu/rjX+2AIdSQsZ9BT5SkCh+ps370HDi19v37x7V4N5SL/xX+NwVZMWtboI12q5nrW0nOe109tTtjTC" +
-    "YILKfQVLXv3Df3/3p+9aLFOatXiA/n1skhYdpRPzPKICSAck4CqHu+5aE5E3xgozt5Y0c2tNsTinFrVJtKg12Hx8ZOf50WJ/ypJ1n66CtX35/wEVfeoZjo8BAA==",
+    "YILKfQVLXv3Df3/3p+9aLFOatXiA/n1skhYdpRPzPKICSAck4CqHu+5aE5E3xgozt5Y0c2tNsTinFrVJtKg12Hx8ZOf50WJ/ypJ1n66CtX35/wF/FTNkjo8BAA==",
   attempt:
     "H4sIAAAAAAAAE62TX2+bPBTGv4uvswkMdE3ukhIorHYGJYA9TYh/IQaboAKBUPW7vyJ9J20X26Soliz7WEePfn6Onldw6Os651HcdblouohlYAXirosk+ashubpjSlKgmFvZ/fLzBAvQsqLOsyg91QdWRN2pymuw" +
     "Amf4Ob/YIgu0ngbjIRPGJQ6MPjOWDX2w7iwx1gm/H5C+/vtmVmvVmBPFbRKoHRLFrmhoH2LTmOKrjiNjr4BYR+pO54x4lYKgIXYeGsi0l3aeM2Kxl0lpl8QzBC7dCunVgHVHowGtsOdAJPYX7BlH7B0F1V1OSsSe" +

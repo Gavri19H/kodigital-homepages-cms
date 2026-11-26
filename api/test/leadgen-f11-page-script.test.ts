@@ -444,8 +444,8 @@ describe("F11 page script — ships in the shell, outside the visitor bundle", (
   });
 
   // The page script never rides the visitor bundle: the bundle's exact size is
-  // pinned at 57,331 bytes for v18 with synchronous text-entry focus.
-  it("the v18 visitor bundle is exactly 57,331 bytes and carries no redirect code", () => {
+  // pinned at 57,331 bytes for v19 with synchronous text-entry focus.
+  it("the v19 visitor bundle is exactly 57,331 bytes and carries no redirect code", () => {
     expect(LEADGEN_RUNTIME_JS.length).toBe(57331);
     expect(LEADGEN_RUNTIME_JS).not.toContain("lg_rc");
     expect(LEADGEN_RUNTIME_JS).not.toContain("data-lg-redirect");
