@@ -220,6 +220,29 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(store.get(key)).toBe(`alarm ${noon + hour} resumed`);
   });
 
+  it.each([
+    { state: "alarm", lcp: 1200, headline: "Speed RECOVERY" },
+    { state: "nodata", lcp: 2200, headline: "Speed ALARM · data resumed" },
+  ])("waits for fresh LCP samples before posting $headline", async ({ state, lcp, headline }) => {
+    const key = "speed:v1:state:site-1:article:LCP";
+    const previous = `${state} ${noon}`;
+    store.set(key, previous);
+    seed(19, noon - 7 * hour, { lcp });
+    seed(1, noon, { lcp });
+    const put = vi.spyOn(env.CACHE, "put");
+
+    await checkHour(); // Only the 24 h window qualifies.
+    expect(send).not.toHaveBeenCalled();
+    expect(store.get(key)).toBe(previous);
+    expect(put.mock.calls.map(([writtenKey]) => writtenKey)).not.toContain(key);
+
+    seed(19, noon, { lcp });
+    await checkHour();
+    expect(messages()).toEqual([
+      `${headline} · site-1.example (site-1) · article · p75 LCP ${lcp} ms · target ≤ 1500 ms · 20 samples · worker ${release} · last 1 h`,
+    ]);
+  });
+
   it("keeps sites, page types and metrics independent and applies LCP targets to every page type", async () => {
     addSite(db, "site-2", "Second site", "home");
     seed(20, noon, { page: "home", lcp: 2600 });
@@ -424,6 +447,52 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
       expect.stringMatching(/Speed ALARM.*edge HIT share 50%.*60 samples.*last 24 h$/),
       expect.stringMatching(/Speed RECOVERY.*edge HIT share 100%.*60 samples.*last 1 h$/),
     ]);
+  });
+
+  it("re-alarms on HIT share and article LCP once the six-hour window contains only post-recovery traffic", async () => {
+    const hitKey = "speed:v1:state:site-1:all pages:HIT";
+    const lcpKey = "speed:v1:state:site-1:article:LCP";
+    for (let offset = 0; offset < 5; offset++) {
+      const at = noon + offset * hour;
+      seedEdge("site-1", at, 14, 6);
+      seed(8, at, { lcp: 2200 });
+      await checkHour(offset);
+    }
+    seedEdge("site-1", noon + 5 * hour, 60, 0);
+    seed(20, noon + 5 * hour, { lcp: 1000 });
+    await checkHour(5);
+    const initialPosts = [
+      expect.stringMatching(/Speed ALARM.*edge HIT share 70%.*60 samples.*last 6 h$/),
+      expect.stringMatching(/Speed ALARM.*article.*p75 LCP 2200 ms.*24 samples.*last 6 h$/),
+      expect.stringMatching(/Speed RECOVERY.*edge HIT share 100%.*60 samples.*last 1 h$/),
+      expect.stringMatching(/Speed RECOVERY.*article.*p75 LCP 1000 ms.*20 samples.*last 1 h$/),
+    ];
+    expect(messages()).toEqual(initialPosts);
+
+    const recoveredAt = noon + 6 * hour;
+    const put = vi.spyOn(env.CACHE, "put");
+    // This hour is healthy. The overlapping six hours still have 136/160 HITs (85%) and a p75 LCP of 2200 ms.
+    seedEdge("site-1", recoveredAt, 20, 0);
+    seed(8, recoveredAt, { lcp: 1000 });
+    for (let offset = 7; offset <= 11; offset++) {
+      const at = noon + offset * hour;
+      seedEdge("site-1", at, 14, 6);
+      seed(8, at, { lcp: 2100 });
+    }
+    for (let offset = 6; offset < 11; offset++) await checkHour(offset);
+    expect(messages()).toEqual(initialPosts);
+    expect(store.get(hitKey)).toBe(`healthy ${recoveredAt}`);
+    expect(store.get(lcpKey)).toBe(`healthy ${recoveredAt}`);
+    expect(put.mock.calls.filter(([key]) => key.startsWith("speed:v1:state:"))).toHaveLength(0);
+
+    await checkHour(11); // The six-hour window starts exactly at recovery.
+    await checkHour(11);
+    expect(messages()).toEqual([...initialPosts,
+      expect.stringMatching(/Speed ALARM.*edge HIT share 75%.*120 samples.*last 6 h$/),
+      expect.stringMatching(/Speed ALARM.*article.*p75 LCP 2100 ms.*48 samples.*last 6 h$/),
+    ]);
+    expect(store.get(hitKey)).toBe(`alarm ${recoveredAt + 6 * hour}`);
+    expect(store.get(lcpKey)).toBe(`alarm ${recoveredAt + 6 * hour}`);
   });
 
   it("reads each client's earliest three known outcomes across page types and starts a new window at UTC midnight", async () => {

@@ -214,7 +214,8 @@ async function notifyChanges(
   const states = await env.CACHE.get(checks.map(check => check.key), "text");
   for (const { reading, target, key } of checks) {
     const [stored, previousHour, marker] = (states.get(key) ?? "").split(" ");
-    if (Number(previousHour) >= end) continue;
+    const lastChange = previousHour === undefined ? -Infinity : Number(previousHour);
+    if (lastChange >= end) continue;
     // Older "alarm <hour> gap" records last notified Slack of the data gap.
     const previous = marker === "gap" ? "nodata" : stored;
     const edge = reading.metric === "HIT";
@@ -227,6 +228,9 @@ async function notifyChanges(
       headline = "Speed DATA GAP";
       detail = `${reading.metric} · ${reading.samples} samples (minimum ${edge ? MIN_EDGE_SAMPLES : MIN_VITAL_SAMPLES})`;
     } else {
+      // A fallback window can mix samples from both sides of the last state change.
+      const windowStart = end - reading.windowHours * HOUR_MS;
+      if (windowStart < lastChange) continue;
       const alarm = offTarget(reading.metric, reading.value, target);
       state = alarm ? "alarm" : "healthy";
       if (previous === state || (!alarm && previous !== "alarm" && previous !== "nodata")) continue;
