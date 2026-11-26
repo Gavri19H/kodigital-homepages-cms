@@ -108,6 +108,17 @@ function entrypoint(props: PublicPageProps, cache?: CacheContext) {
   return { page: new PublicPage(ctx, env), ctx };
 }
 
+function expectOriginalBinding(db: D1Database) {
+  const prepare = vi.spyOn(env.DB, "prepare");
+  try {
+    db.prepare("SELECT 1");
+    expect(prepare).toHaveBeenCalledExactlyOnceWith("SELECT 1");
+    expect(prepare.mock.contexts[0]).toBe(env.DB);
+  } finally {
+    prepare.mockRestore();
+  }
+}
+
 describe("PublicPage.fetch", () => {
   beforeEach(() => vi.resetAllMocks());
 
@@ -132,7 +143,9 @@ describe("PublicPage.fetch", () => {
 
     expect(honoFetch).toHaveBeenCalledTimes(1);
     const [forwarded, bindings, context] = vi.mocked(honoFetch).mock.calls[0]!;
-    expect(renderReadDb).toHaveBeenCalledExactlyOnceWith(env.DB, "bookmark-123", undefined);
+    const buildDb = vi.mocked(renderReadDb).mock.calls[0]![0];
+    expect(renderReadDb).toHaveBeenCalledExactlyOnceWith(buildDb, "bookmark-123", undefined);
+    expectOriginalBinding(buildDb);
     expect(bindings).toEqual({ ...env, DB: renderDb, EDGE_INNER: "1" });
     expect(env.EDGE_INNER).toBeUndefined();
     expect(context).toBe(ctx);
@@ -160,7 +173,9 @@ describe("PublicPage.fetch", () => {
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
     expect(renderReadDb).not.toHaveBeenCalled();
-    expect(buildSiteSnapshot).toHaveBeenCalledWith({ ...env, EDGE_INNER: "1" }, "tenant.example", undefined);
+    const buildDb = vi.mocked(buildSiteSnapshot).mock.calls[0]![0].DB;
+    expect(buildSiteSnapshot).toHaveBeenCalledExactlyOnceWith({ ...env, DB: buildDb, EDGE_INNER: "1" }, "tenant.example", undefined);
+    expectOriginalBinding(buildDb);
     expect(env.EDGE_INNER).toBeUndefined();
     expect(honoFetch).not.toHaveBeenCalled();
     expect(response.status).toBe(200);

@@ -17,7 +17,7 @@ import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
 import { pickListicle, type ListiclePick } from "./listicle-select";
 import { perfstageRequest } from "./perfstage";
-import { PublicPage } from "./public-page";
+import { BUILD_COLO_HEADER, PublicPage } from "./public-page";
 import { parseSiteSnapshot } from "./snapshot";
 import { seedStaticAssets, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
@@ -122,6 +122,7 @@ interface PageFetchContext {
   env: Env;
   ctx: ExecutionContext;
   hedgeMs: number;
+  visitor: Request;
 }
 
 async function fetchDirectPage({ env, ctx }: PageFetchContext, props: PublicPageProps, request: Request): Promise<Response> {
@@ -187,6 +188,15 @@ async function fetchWithHedge(
 async function fetchPublicPage(
   context: PageFetchContext, props: PublicPageProps, request: Request, timing?: GatewayTiming, direct = false,
 ): Promise<Response> {
+  if (context.env.PERFSTAGE !== "true") {
+    try {
+      // The loopback requests use fresh URLs. Keep the visitor's colo out of the cache props and renderer inputs.
+      const colo = context.visitor.cf?.colo;
+      if (typeof colo === "string") request.headers.set(BUILD_COLO_HEADER, colo);
+    } catch {
+      // A missing or invalid colo must not affect the fetch.
+    }
+  }
   let hedge: HedgeWinner | undefined;
   const fetchPage = async () => {
     if (direct) return fetchDirectPage(context, props, request);
@@ -423,7 +433,7 @@ async function dispatchGatewayRequest(
       try {
         const pages = ctx?.exports as PageExports | undefined;
         if (ctx && typeof pages?.PublicPage === "function") {
-          const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0 });
+          const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0, visitor: request });
           if (host) return host.snapshot.siteId;
         }
       } catch {
@@ -469,7 +479,7 @@ async function dispatchGatewayRequest(
       if ((route || attempt) && !isAdminHost(url.hostname, env)) {
         // HEAD needs only metadata. Runtime endpoints can consult the snapshot but never hedge.
         const hedgeMs = route && request.method === "GET" ? hedgeDelayMs(env.EDGE_HEDGE_MS) : 0;
-        const context = { env, ctx, pages, hedgeMs };
+        const context = { env, ctx, pages, hedgeMs, visitor: request };
         // Entry-rule redirects and failed host lookups can skip the inner fetch.
         if (route && env.PERFSTAGE === "true") {
           timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };

@@ -119,7 +119,7 @@ describe("PublicPage reads after a publish", () => {
     expect(withSession.mock.calls).toEqual([["first-primary"], ["first-primary"]]);
   });
 
-  it("gives /__snap the raw binding and lets the snapshot builder open its own primary session", async () => {
+  it("lets the snapshot builder open its own primary session on the raw binding", async () => {
     const { db, primary, env, ctx, withSession } = laggingReplica();
     primary.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(stmt => stmt.all<T>()));
     const build = vi.spyOn(snapshots, "buildSiteSnapshot");
@@ -128,7 +128,8 @@ describe("PublicPage reads after a publish", () => {
       headers: { "x-cms-bookmark": "render-bookmark" },
     }));
     expect(response.status).toBe(200);
-    expect(build.mock.calls[0]![0].DB).toBe(db);
+    expect(build).toHaveBeenCalledBefore(withSession);
+    expect(withSession.mock.contexts[0]).toBe(db);
     expect(withSession).toHaveBeenCalledExactlyOnceWith("first-primary");
   });
 });

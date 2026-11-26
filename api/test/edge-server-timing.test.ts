@@ -109,8 +109,11 @@ function cachedGateway(missStatus: string | null = "MISS") {
     }),
   } });
   const fallback = vi.fn<Parameters<typeof gatewayFetch>[3]>(() => Response.redirect(origin + "/live", 302));
-  const visit = (init?: RequestInit, path = "/article/story") =>
-    gatewayFetch(new Request(origin + path, init), env, ctx, fallback);
+  const visit = (init?: RequestInit, path = "/article/story") => {
+    const request = new Request(origin + path, init);
+    if (init?.cf) request.cf = init.cf; // Node's Request omits Workers metadata.
+    return gatewayFetch(request, env, ctx, fallback);
+  };
   return { ...fixture, env, render, visit, cache, fallback };
 }
 
@@ -127,6 +130,7 @@ const pageMetrics = [
 
 it("reports each fresh build, overlapping D1 wall time and result locations without changing response bytes", async () => {
   const { db, env, render, visit, cache, calls, batchSizes, withSession } = cachedGateway();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const plainPage = applyEdgeCacheHeaders(await render(db), { siteId, path: "/article/story" });
   const plainSnap = Response.json(await snapshots.buildSiteSnapshot(env, host));
   calls.length = batchSizes.length = 0;
@@ -149,18 +153,42 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(calls).toHaveLength(12); // Eight snapshot statements and four page statements.
   expect(batchSizes).toEqual([7, 2]);
   expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
+  expect(log).not.toHaveBeenCalled();
 });
 
 it.each([undefined, "false", "TRUE"])("exposes only the current edge outcome in production with PERFSTAGE=%s", async flag => {
-  const { env, visit, cache, calls } = cachedGateway();
+  const { db, env, render, visit, cache, calls, withSession, batchSizes } = cachedGateway();
   env.APP_ENV = "production";
   env.PERFSTAGE = flag;
+  const baseline = applyEdgeCacheHeaders(await render(db), { siteId, path: "/article/story" });
+  function expectedHeaders(status: "MISS" | "HIT") {
+    const headers = new Headers(baseline.headers);
+    headers.set("cf-cache-status", status);
+    headers.set("x-edge-cache", status);
+    headers.set("Server-Timing", `edge;desc="${status}"`);
+    return [...headers];
+  }
+  calls.length = batchSizes.length = 0;
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const measure = vi.spyOn(D1Timing.prototype, "measure");
-  const miss = await visit({ headers: { "x-perfstage-direct": "1" } });
+  const miss = await visit({ headers: { "x-perfstage-direct": "1", "x-cms-build-colo": "forged" } },
+    "/article/story?gclid=private-click");
   expect(miss.status).toBe(200);
   expect(miss.headers.get("x-edge-cache")).toBe("MISS");
   expect(miss.headers.get("Server-Timing")).toBe('edge;desc="MISS"');
+  expect([...miss.headers]).toEqual(expectedHeaders("MISS"));
   const bytes = await miss.bytes();
+  expect(bytes).toEqual(await baseline.bytes());
+  expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+    { evt: "edge-build", host, path: "/__snap", variant: "snap", snap: true, build_ms: 0, d1_ms: 0,
+      rounds: 2, calls: 2, primary: 0, replica: 3, region: "WNAM", colo: null },
+    { evt: "edge-build", host, path: "/article/story", variant: "human", snap: false, build_ms: 25, d1_ms: 18,
+      rounds: 2, calls: 3, primary: 2, replica: 1, region: "EEUR", colo: null },
+  ]);
+  expect(measure).toHaveBeenCalledTimes(5);
+  expect(calls).toHaveLength(12);
+  expect(batchSizes).toEqual([7, 2]);
+  expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
   for (const key of ["snap", "human"]) {
     const stored = cache.get(key)!;
     expect(stored.status).toBe(200);
@@ -168,12 +196,37 @@ it.each([undefined, "false", "TRUE"])("exposes only the current edge outcome in 
     stored.headers.set("Server-Timing", 'd1;dur=12;desc="primary=1 region=EEUR"');
   }
   calls.length = 0;
+  measure.mockClear();
+  log.mockClear();
+  withSession.mockClear();
   const hit = await visit();
+  expect(hit.status).toBe(200);
   expect(hit.headers.get("x-edge-cache")).toBe("HIT");
   expect(hit.headers.get("Server-Timing")).toBe('edge;desc="HIT"');
+  expect([...hit.headers]).toEqual(expectedHeaders("HIT"));
   expect(await hit.bytes()).toEqual(bytes);
   expect(measure).not.toHaveBeenCalled();
+  expect(log).not.toHaveBeenCalled();
+  expect(withSession).not.toHaveBeenCalled();
   expect(calls).toHaveLength(0);
+});
+
+it("carries the visitor colo to each fresh production build across the Workers Cache boundary", async () => {
+  const { env, visit, cache } = cachedGateway();
+  delete env.PERFSTAGE;
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  await visit({ cf: { colo: "EWR", country: "US" } });
+  expect(log.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+    expect.objectContaining({ snap: true, colo: "EWR" }), expect.objectContaining({ snap: false, colo: "EWR" }),
+  ]);
+  cache.delete("human");
+  log.mockClear();
+  await visit({ cf: { colo: "IAD", country: "US" } }, "/article/story?gclid=private-click");
+  expect(log).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ evt: "edge-build", path: "/article/story", snap: false, colo: "IAD" });
+  const inner = vi.mocked(app.honoFetch).mock.lastCall![0];
+  expect(inner.cf).toBeUndefined();
+  expect(inner.headers.has("x-cms-build-colo")).toBe(false);
 });
 
 it.each([
