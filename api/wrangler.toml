@@ -3,6 +3,20 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 account_id = "a05d7505b71c6cd931e436defe670509"
 
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[cache]
+enabled = true
+
+[exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 # Section 6.2 admin bundles live in ./public. The Worker remains first for all
 # routes; only the two manifest-pinned /assets/admin/{conversions,reporting}/*
 # paths are explicitly forwarded to this binding by the authenticated router.
@@ -26,6 +40,7 @@ run_worker_first = true
 
 [vars]
 APP_ENV = "development"
+IMAGE_TRANSFORMS = "off"
 # Analytics pipeline (POST /api/track -> Kinesis Firehose `homepage-events` ->
 # S3 -> Athena `homepage.events`). AWS_REGION + the stream name are non-sensitive
 # plaintext vars (MUST stay here so CI deploy doesn't wipe them from Dashboard).
@@ -70,6 +85,7 @@ ADMIN_HOST = "localhost"
 ADMIN_BASE_URL = "http://localhost:8787"
 ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+EDGE_HEDGE_MS = "50"
 HTML_CACHE_TTL_SECONDS = "60"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
@@ -92,6 +108,11 @@ binding = "DB"
 database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
+
+[[ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4204"
+simple = { limit = 60, period = 60 }
 
 [[kv_namespaces]]
 binding = "CACHE"
@@ -141,8 +162,23 @@ name = "kodigital-homepages-cms-worker-staging"
 services = []
 queues = { producers = [], consumers = [] }
 
+[env.staging.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[env.staging.cache]
+enabled = true
+
+[env.staging.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.staging.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [env.staging.vars]
 APP_ENV = "staging"
+IMAGE_TRANSFORMS = "on"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
@@ -160,6 +196,7 @@ ADMIN_HOST = "staging-cms.kodigital.app"
 ADMIN_BASE_URL = "https://staging-cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+EDGE_HEDGE_MS = "50"
 HTML_CACHE_TTL_SECONDS = "60"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
@@ -178,6 +215,11 @@ database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
 
+[[env.staging.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4202"
+simple = { limit = 60, period = 60 }
+
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
 id = "77bb281de4fb4008a06b0993eb8b1774"
@@ -194,8 +236,23 @@ bucket_name = "kodigital-homepages-cms-media"
 [env.production]
 name = "kodigital-homepages-cms-worker"
 
+[env.production.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[env.production.cache]
+enabled = true
+
+[env.production.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.production.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [env.production.vars]
 APP_ENV = "production"
+IMAGE_TRANSFORMS = "on"
 AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
@@ -221,6 +278,7 @@ ADMIN_HOST = "cms.kodigital.app"
 ADMIN_BASE_URL = "https://cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"
 CACHE_API_ENABLED = "true"
+EDGE_HEDGE_MS = "50"
 HTML_CACHE_TTL_SECONDS = "300"
 OPENAI_TEXT_MODEL = "gpt-5.5"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
@@ -257,6 +315,11 @@ database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
 
+[[env.production.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4201"
+simple = { limit = 60, period = 60 }
+
 [[env.production.kv_namespaces]]
 binding = "CACHE"
 id = "77bb281de4fb4008a06b0993eb8b1774"
@@ -288,3 +351,91 @@ max_batch_timeout = 5
 max_retries = 5
 max_concurrency = 10
 dead_letter_queue = "kodigital-provisioning-dlq"
+
+# Perfstage inherits the same main and compatibility date as production. The
+# separate Worker name and workers.dev admin URL keep it off tenant routes.
+# DB and CACHE use dedicated resources. MEDIA reads production image bytes,
+# with the PERFSTAGE runtime guard responsible for read-only access.
+# Empty services and queues disconnect Conversions Core and provisioning queues.
+# APP_ENV selects perfstage auth. DEV_BYPASS_AUTH requires both the literal
+# PERFSTAGE flag and a Cloudflare client IP listed in ADMIN_ALLOW_IP.
+# Empty AWS region, Firehose stream names and S3 bucket disable live analytics
+# destinations. The postback origin and Access team domain are empty to avoid
+# production intake and JWKS requests. Pixel, provider and ClickHouse endpoints
+# have no bindings here.
+[env.perfstage]
+name = "kodigital-homepages-cms-worker-perfstage"
+workers_dev = true
+services = []
+queues = { producers = [], consumers = [] }
+
+[env.perfstage.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[env.perfstage.cache]
+enabled = true
+
+[env.perfstage.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.perfstage.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
+[env.perfstage.vars]
+APP_ENV = "perfstage"
+IMAGE_TRANSFORMS = "on"
+PERFSTAGE = "true"
+DEV_BYPASS_AUTH = "true"
+ADMIN_ALLOW_IP = ""
+AWS_REGION = ""
+EVENTS_FIREHOSE_STREAM = ""
+LISTICLE_EVENTS_FIREHOSE_STREAM = ""
+LEADGEN_EVENTS_FIREHOSE_STREAM = ""
+ANALYTICS_EVENTS_BUCKET = ""
+LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
+CONVERSIONS_UI_ENABLED = "true"
+CONVERSIONS_PROXY_ENABLED = "true"
+CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
+CONVERSIONS_ACTOR_ENVIRONMENT = "production"
+CONVERSIONS_POSTBACK_ORIGIN = ""
+ADMIN_HOST = "kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
+ADMIN_BASE_URL = "https://kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
+ADMIN_BASE_PATH = "/admin"
+CACHE_API_ENABLED = "true"
+EDGE_HEDGE_MS = "50"
+HTML_CACHE_TTL_SECONDS = "300"
+OPENAI_TEXT_MODEL = "gpt-5.5"
+OPENAI_IMAGE_MODEL = "gpt-image-2"
+# Keep perfstage provisioning in dry-run mode and block Cloudflare route mutations.
+SITE_PROVISIONING_DRY_RUN = "true"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
+CF_ACCESS_TEAM_DOMAIN = ""
+CF_ACCESS_AUD = "ec9b3610a2b4774ef4ff1eb95e0438b4ec72d9e943971828c5179bfaed7d1a28"
+
+[env.perfstage.triggers]
+crons = ["* * * * *"]
+
+[env.perfstage.observability]
+enabled = true
+head_sampling_rate = 1
+
+[[env.perfstage.d1_databases]]
+binding = "DB"
+database_name = "kodigital-homepages-cms-perfstage"
+database_id = "a3fe7c6b-1bff-4b07-8a7c-a783401ab4ce"
+migrations_dir = "migrations"
+
+[[env.perfstage.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4203"
+simple = { limit = 60, period = 60 }
+
+[[env.perfstage.kv_namespaces]]
+binding = "CACHE"
+id = "356e20e0b4f14177a0e814ebe87e04ee"
+
+[[env.perfstage.r2_buckets]]
+binding = "MEDIA"
+bucket_name = "kodigital-homepages-cms-media"

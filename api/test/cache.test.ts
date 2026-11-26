@@ -1,11 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { cacheGet, cacheSet, cacheDel, invalidateFeeds } from "../src/cache";
-import { computeEtag } from "../src/cache/edge-cache";
-import { htmlKey } from "../src/cache/cache-keys";
+import { computeEtag, putCachedHtml } from "../src/cache/edge-cache";
+import { feedRssKey, htmlKey } from "../src/cache/cache-keys";
 import { publicHtmlCacheHeaders } from "../src/cache/cache-control";
 import { servePublicHtml } from "../src/public/html-pipeline";
 import type { PublicSiteContext } from "../src/public/middleware";
+import publicRouter from "../src/public/router";
 import type { Env } from "../src/env";
+import type { WaitUntilContext } from "../src/wait-until-context";
+import { makeFakeDb } from "./helpers/admin-test-kit";
 
 // In-memory KV mock that supports get/put/delete, getWithMetadata, and
 // list({ prefix, cursor }). list() returns at most 2 keys per page so the
@@ -77,6 +80,11 @@ function buildEnv(overrides: Partial<Env> = {}): { env: Env; store: Map<string, 
   return { env, store };
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
 describe("cache module: feed-key invalidation + KV roundtrip", () => {
   it("cacheGet returns null for a missing key", async () => {
     const { env } = buildEnv();
@@ -94,6 +102,36 @@ describe("cache module: feed-key invalidation + KV roundtrip", () => {
     await cacheSet(env, "k1", "v1");
     await cacheDel(env, "k1");
     expect(await cacheGet(env, "k1")).toBeNull();
+  });
+
+  it("cacheDel removes the same encoded Cache API URL that putCachedHtml wrote", async () => {
+    const { env, store } = buildEnv({ CACHE_API_ENABLED: "true" });
+    const mirror = new Map<string, Response>();
+    vi.stubGlobal("caches", {
+      default: {
+        async put(url: string, response: Response) { mirror.set(url, response); },
+        async delete(url: string) { return mirror.delete(url); },
+      },
+    });
+    const key = "html:site-1:/page/an offer:3:1";
+    const url = `https://edge-cache.local/${encodeURIComponent(key)}`;
+
+    await putCachedHtml(env, key, "<html/>");
+    expect(store.get(key)).toBe("<html/>");
+    expect(await mirror.get(url)?.text()).toBe("<html/>");
+
+    await cacheDel(env, key);
+    expect(store.has(key)).toBe(false);
+    expect(mirror.has(url)).toBe(false);
+  });
+
+  it("callers without waitUntil observe failed HTML and feed writes", async () => {
+    const { env } = buildEnv();
+    const failure = new Error("KV write failed");
+    vi.spyOn(env.CACHE, "put").mockRejectedValue(failure);
+
+    await expect(putCachedHtml(env, "html:site-1:/", "<html/>")).rejects.toBe(failure);
+    await expect(cacheSet(env, "feed:rss", "<rss/>")).rejects.toBe(failure);
   });
 
   it("cacheSet honours expirationTtl when provided", async () => {
@@ -153,17 +191,26 @@ describe("cache re-verify: ETag + 304 + KV warm path (T43 / F4)", () => {
 
   function serve(
     env: Env,
-    opts: { ifNoneMatch?: string | null; render?: () => string },
+    opts: {
+      ifNoneMatch?: string | null;
+      render?: () => string;
+      settingsVersion?: number;
+      waitUntil?: WaitUntilContext;
+    },
   ) {
     // Same wiring as the public router (router.ts): key built via
     // htmlKey(siteContext.siteId, ...), headers via publicHtmlCacheHeaders.
-    return servePublicHtml(env, siteContext, {
+    const site = {
+      ...siteContext,
+      settings_version: opts.settingsVersion ?? siteContext.settings_version,
+    };
+    return servePublicHtml(env, site, {
       key: htmlKey(siteContext.siteId, "/", siteContext.content_version),
       path: "/",
       ifNoneMatch: opts.ifNoneMatch ?? null,
       render: opts.render ?? (() => "<html>v3</html>"),
       headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    });
+    }, opts.waitUntil);
   }
 
   it("cd api && npx vitest run test/cache.test.ts — cold render warms KV, warm hit skips render, If-None-Match answers 304 (T43.AC1)", async () => {
@@ -172,6 +219,7 @@ describe("cache re-verify: ETag + 304 + KV warm path (T43 / F4)", () => {
       site_id: siteContext.siteId,
       path: "/",
       content_version: siteContext.content_version,
+      settings_version: siteContext.settings_version,
     });
 
     // 1. Cold cache: render runs once, 200 + strong ETag, KV is warmed.
@@ -191,7 +239,7 @@ describe("cache re-verify: ETag + 304 + KV warm path (T43 / F4)", () => {
     ).toBe("<html>v3</html>");
 
     // 2. KV warm path: body served from cache, render thunk NOT invoked,
-    //    stored ETag echoed.
+    //    current ETag returned.
     const warm = await serve(env, {
       render: () => {
         throw new Error("render must not run on a warm cache");
@@ -220,5 +268,72 @@ describe("cache re-verify: ETag + 304 + KV warm path (T43 / F4)", () => {
     const res = await serve(env, { ifNoneMatch: '"deadbeefdeadbeef"' });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("<html>v3</html>");
+  });
+
+  it("a settings change returns 200 for the previous ETag and 304 for the new ETag", async () => {
+    const { env } = buildEnv();
+    const first = await serve(env, {});
+    const oldEtag = first.headers.get("ETag");
+    expect(oldEtag).toBeTruthy();
+    const settingsVersion = siteContext.settings_version + 1;
+    const render = vi.fn(() => "<html>v3</html>");
+
+    const warm = await serve(env, { settingsVersion, ifNoneMatch: oldEtag, render });
+    expect(warm.status).toBe(200);
+    expect(render).not.toHaveBeenCalled();
+    const currentEtag = warm.headers.get("ETag");
+    expect(currentEtag).toMatch(/^"[0-9a-f]{16}"$/);
+    expect(currentEtag).not.toBe(oldEtag);
+
+    const conditional = await serve(env, { settingsVersion, ifNoneMatch: currentEtag });
+    expect(conditional.status).toBe(304);
+    expect(conditional.headers.get("ETag")).toBe(currentEtag);
+  });
+
+  it("returns cold HTML before KV completes and tracks the Cache API mirror in waitUntil", async () => {
+    const { env } = buildEnv({ CACHE_API_ENABLED: "true" });
+    // Leave just the cache fill in waitUntil.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let finishKv!: () => void;
+    const kvWrite = new Promise<void>((resolve) => { finishKv = resolve; });
+    vi.spyOn(env.CACHE, "put").mockReturnValue(kvWrite);
+    let finishMirror!: () => void;
+    const mirrorWrite = new Promise<void>((resolve) => { finishMirror = resolve; });
+    const mirrorPut = vi.fn(() => mirrorWrite);
+    vi.stubGlobal("caches", { default: { match: async () => undefined, put: mirrorPut } });
+    const pending: Promise<unknown>[] = [];
+
+    const ctx = { waitUntil(promise: Promise<unknown>) { pending.push(promise); } };
+    const cold = await serve(env, { waitUntil: ctx });
+    expect(cold.status).toBe(200);
+    expect(await cold.text()).toBe("<html>v3</html>");
+    expect(pending).toHaveLength(1);
+
+    finishKv();
+    await vi.waitFor(() => expect(mirrorPut).toHaveBeenCalledTimes(1));
+    expect(await Promise.race([pending[0], Promise.resolve("pending")])).toBe("pending");
+    finishMirror();
+    await Promise.all(pending);
+  });
+
+  it("the public router serves a warm homepage and cold RSS feed while KV puts are pending", async () => {
+    const { db } = makeFakeDb([{ match: "SELECT s.id AS site_id", row: siteContext }]);
+    const { env } = buildEnv({ DB: db });
+    await putCachedHtml(env, htmlKey(siteContext.siteId, "/", siteContext.content_version), "<html/>");
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const put = vi.spyOn(env.CACHE, "put").mockReturnValue(new Promise<void>(() => {}));
+    const ctx = { waitUntil: vi.fn(), passThroughOnException() {}, props: {} };
+
+    const home = await publicRouter.request("https://example.com/", {}, env, ctx);
+    expect(home.status).toBe(200);
+    expect(await home.text()).toBe("<html/>");
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+
+    const feed = await publicRouter.request("https://example.com/feed.xml", {}, env, ctx);
+    expect(feed.status).toBe(200);
+    const xml = await feed.text();
+    expect(xml).toContain("<rss");
+    expect(put).toHaveBeenCalledWith(feedRssKey(siteContext.siteId, siteContext.content_version), xml, { expirationTtl: 60 });
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(3);
   });
 });

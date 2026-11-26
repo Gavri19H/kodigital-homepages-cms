@@ -20,6 +20,8 @@ import type { Env } from "../env";
 import { chunk, placeholders } from "../admin/listicles/shared";
 import { listicleKey } from "../cache/cache-keys";
 import { computeEtag, putCachedHtml } from "../cache/edge-cache";
+import { onPublicChange } from "../edge/public-change";
+import { listicleTag } from "../edge/tags";
 import { parseNumber } from "../env";
 import {
   loadActiveVersions,
@@ -50,9 +52,9 @@ export interface ListicleFanOutResult {
   shells_warmed: number;
 }
 
-interface AffectedVersionRow {
-  id: number;
-  article_id: number;
+interface SectionConsumer extends AffectedArticle {
+  version_id: number;
+  version_status: string;
 }
 
 // Delete every cached shell (all lander_v × content_version variants) of one
@@ -162,31 +164,49 @@ async function invalidateAndWarmArticles(
   return { deleted, warmed };
 }
 
-// §22.2 — Section save fan-out. Returns counts for observability/tests.
-export async function fanOutSectionInvalidate(
-  env: Env,
-  db: D1Database,
-  sectionId: number,
-): Promise<ListicleFanOutResult> {
-  // 1. affected versions via candidates → pages → versions.
-  const versionRows = await db
-    .prepare(
-      `SELECT DISTINCT ver.id AS id, ver.article_id AS article_id
-       FROM listicle_page_section_candidates cand
-       JOIN listicle_pages p ON p.id = cand.page_id
-       JOIN listicle_article_versions ver ON ver.id = p.article_version_id
-       WHERE cand.section_id = ?`,
-    )
-    .bind(sectionId)
-    .all<AffectedVersionRow>();
-  const versions = versionRows.results ?? [];
-  if (versions.length === 0) {
-    return { affected_versions: 0, affected_articles: 0, cache_keys_deleted: 0, shells_warmed: 0 };
-  }
+async function loadSectionConsumers(db: D1Database, sectionIds: number[]): Promise<SectionConsumer[]> {
+  const rows = await db.prepare(
+    `SELECT DISTINCT a.id, a.public_id, a.site_id, a.slug, a.article_name, a.status,
+            ver.id AS version_id, ver.status AS version_status
+     FROM listicle_page_section_candidates cand
+     JOIN listicle_pages p ON p.id = cand.page_id
+     JOIN listicle_article_versions ver ON ver.id = p.article_version_id
+     JOIN listicle_articles a ON a.id = ver.article_id
+     WHERE cand.section_id IN (SELECT value FROM json_each(?))
+     ORDER BY a.site_id, a.id, ver.id`,
+  ).bind(JSON.stringify(sectionIds)).all<SectionConsumer>();
+  return rows.results;
+}
 
-  // 2. bump each affected Version's content_version → new lander_v cache
-  //    identity (AWAITED — correctness mechanism).
-  for (const ids of chunk(versions.map((v) => v.id))) {
+function isLiveConsumer(row: SectionConsumer): boolean {
+  return row.status === "published" && row.version_status === "active";
+}
+
+async function purgeLiveConsumers(
+  env: Env,
+  consumers: SectionConsumer[],
+  reason: string,
+  ctx?: ExecutionContext,
+): Promise<void> {
+  const tagsBySite = new Map<string, Set<string>>();
+  for (const consumer of consumers.filter(isLiveConsumer)) {
+    let tags = tagsBySite.get(consumer.site_id);
+    if (!tags) {
+      tags = new Set<string>();
+      tagsBySite.set(consumer.site_id, tags);
+    }
+    tags.add(listicleTag(consumer.public_id));
+  }
+  for (const [siteId, tags] of tagsBySite) {
+    await onPublicChange(env, ctx, { siteId, tags: [...tags], reason });
+  }
+}
+
+async function bumpConsumerVersions(
+  db: D1Database,
+  consumers: SectionConsumer[],
+): Promise<void> {
+  for (const ids of chunk(consumers.map(row => row.version_id))) {
     await db
       .prepare(
         `UPDATE listicle_article_versions
@@ -196,29 +216,52 @@ export async function fanOutSectionInvalidate(
       .bind(...ids)
       .run();
   }
+}
 
-  // 3. affected articles.
-  const articleIds = [...new Set(versions.map((v) => v.article_id))];
-  const articles: AffectedArticle[] = [];
-  for (const ids of chunk(articleIds)) {
-    const rows = await db
-      .prepare(
-        `SELECT id, public_id, site_id, slug, article_name, status FROM listicle_articles
-         WHERE id IN (${placeholders(ids.length)})`,
-      )
-      .bind(...ids)
-      .all<AffectedArticle>();
-    articles.push(...(rows.results ?? []));
-  }
-
-  // 4. per-site invalidate + warm.
+// §22.2 — Preserve the legacy bump for ALL consuming versions. Only active
+// versions of published articles can render a public shell or candidate.
+export async function fanOutSectionInvalidate(
+  env: Env,
+  db: D1Database,
+  sectionId: number,
+  ctx?: ExecutionContext,
+): Promise<ListicleFanOutResult> {
+  const consumers = await loadSectionConsumers(db, [sectionId]);
+  await bumpConsumerVersions(db, consumers);
+  // The new revisions are readable now. Release the old edge shells before
+  // the per-article legacy warm, which can take longer for a shared section.
+  await purgeLiveConsumers(env, consumers, "listicle.section.update", ctx);
+  const articles = [...new Map(consumers.map(row => [row.id, row])).values()];
   const { deleted, warmed } = await invalidateAndWarmArticles(env, db, articles);
   return {
-    affected_versions: versions.length,
+    affected_versions: consumers.length,
     affected_articles: articles.length,
     cache_keys_deleted: deleted,
     shells_warmed: warmed,
   };
+}
+
+export async function purgeSectionConsumers(
+  env: Env,
+  sectionId: number,
+  reason: string,
+  ctx?: ExecutionContext,
+): Promise<void> {
+  const consumers = await loadSectionConsumers(env.DB, [sectionId]);
+  await purgeLiveConsumers(env, consumers, reason, ctx);
+}
+
+export async function invalidateOfferSections(
+  env: Env,
+  sectionIds: number[],
+  reason: string,
+  ctx?: ExecutionContext,
+): Promise<void> {
+  if (sectionIds.length === 0) return;
+  const consumers = (await loadSectionConsumers(env.DB, sectionIds)).filter(isLiveConsumer);
+  // Both shell and lazy candidate KV keys include the version's revision.
+  await bumpConsumerVersions(env.DB, consumers);
+  await purgeLiveConsumers(env, consumers, reason, ctx);
 }
 
 // §7.1 publish → invalidate + warm the published article's per-lander_v
@@ -227,6 +270,7 @@ export async function invalidateAndWarmOnPublish(
   env: Env,
   db: D1Database,
   article: AffectedArticle,
+  ctx?: ExecutionContext,
 ): Promise<ListicleFanOutResult> {
   // Phase 7: resolve article_name when the caller predates the field so the
   // warmed shell's boot data is byte-identical to a live cold render.
@@ -238,6 +282,9 @@ export async function invalidateAndWarmOnPublish(
     article = { ...article, article_name: row?.article_name ?? "" };
   }
   const { deleted, warmed } = await invalidateAndWarmArticles(env, db, [article]);
+  await onPublicChange(env, ctx, {
+    siteId: article.site_id, tags: [listicleTag(article.public_id)], reason: "listicle.article.publish",
+  });
   return {
     affected_versions: 0,
     affected_articles: 1,

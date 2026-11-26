@@ -206,15 +206,16 @@ describe("site-provisioning create_site_settings (T19)", () => {
       expect(result.status).toBe("completed");
       expect(fetchCalls).toBe(0);
 
-      // 13 base keys ∪ 14 ad defaults, overlapping only on ads_txt_content → 26
+      // 13 base keys ∪ 15 ad defaults, overlapping only on ads_txt_content → 27
       // unique rows (the ad loop runs first so the real ads.txt wins).
       const seeded = settings.filter((r) => r.site_id === site.id);
       const keys = new Set(seeded.map((r) => r.key));
-      expect(seeded).toHaveLength(26);
+      expect(seeded).toHaveLength(27);
 
       const val = (k: string) => seeded.find((r) => r.key === k)?.value;
       expect(val("ads_enabled")).toBe("1");
       expect(val("ad_provider")).toBe("gam");
+      expect(val("ads_load_timing")).toBe("after_content");
       expect(val("gam_network_code")).toBe("22649417900");
       expect(val("gam_unit_leaderboard")).toBe("/22649417900/Home_Leaderboard");
       expect(val("ad_refresh_seconds")).toBe("30");
@@ -235,7 +236,7 @@ describe("site-provisioning create_site_settings (T19)", () => {
         site_id: site.id,
         step_order: 4,
       });
-      expect(settings.filter((r) => r.site_id === site.id)).toHaveLength(26);
+      expect(settings.filter((r) => r.site_id === site.id)).toHaveLength(27);
     } finally {
       globalThis.fetch = originalFetch;
     }

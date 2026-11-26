@@ -1495,7 +1495,7 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
     const html = renderComponent(NODE_SPECS.LogoStrip, DESIGN);
     expect(html).toContain('class="lg-logo-strip"');
     expect(html.split("<img").length - 1).toBe(2);
-    expect(html).toContain('src="/media/media_1"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(html).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/media_1"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(html).toContain('alt="Acme"');
     expect(html).toContain('loading="lazy"');
     const junk = renderComponent(
@@ -1503,7 +1503,7 @@ describe("v2.4 08 §8.3/§8.10 — new leaf components", () => {
       DESIGN,
     );
     expect(junk.split("<img").length - 1).toBe(1);
-    expect(junk).toContain('src="/media/m9"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(junk).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/m9"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(junk).toContain('alt=""');
   });
 
@@ -1943,7 +1943,7 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
       DESIGN,
     );
     expect(image).toContain('class="lg-bg-panel-img"');
-    expect(image).toContain('src="/media/media_bg"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(image).toContain('src="/cdn-cgi/image/width=1200,fit=scale-down,format=auto,quality=75/media/media_bg"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(image).toContain('alt=""');
     expect(image).toContain("background:#E8EEF4");
     // approved tokens only — the media reference never enters a style attribute
@@ -1976,7 +1976,7 @@ describe("layout containers — render recursion + §8.5 token mapping", () => {
   it("HeaderBar: logo mediaId → src, back toggle carries data-lg-back, secure slot, tel CTA", () => {
     const html = renderComponent(NODE_SPECS.HeaderBar, DESIGN);
     expect(html).toContain('class="lg-headerbar"');
-    expect(html).toContain('src="/media/media_logo"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(html).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/media_logo"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(html).toContain('alt="Acme"');
     expect(html).toContain("data-lg-back"); // engine back hook (03 §3.3)
     expect(html).toContain("lg-headerbar-secure");

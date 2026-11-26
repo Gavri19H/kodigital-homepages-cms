@@ -19,11 +19,14 @@ export type AccessContext =
 export type AccessAuthVariables = { access: AccessContext };
 type Bindings = { Bindings: Env; Variables: AccessAuthVariables };
 
-// Double-gate: DEV_BYPASS_AUTH is honored only when APP_ENV !== 'production',
-// so a leaked production secret cannot disable Access verification.
-function isBypassActive(env: Env): boolean {
-  const isProd = (env.APP_ENV ?? "").trim().toLowerCase() === "production";
-  return parseBoolean(env.DEV_BYPASS_AUTH) && !isProd;
+function isBypassActive(env: Env, request: Request): boolean {
+  const appEnv = (env.APP_ENV ?? "").trim().toLowerCase();
+  if (!parseBoolean(env.DEV_BYPASS_AUTH) || appEnv === "production") return false;
+  if (appEnv !== "perfstage") return true;
+
+  const ip = request.headers.get("CF-Connecting-IP")?.trim();
+  if (env.PERFSTAGE !== "true" || !ip) return false;
+  return (env.ADMIN_ALLOW_IP ?? "").split(",").some(allowed => allowed.trim() === ip);
 }
 
 function base64UrlToBytes(b64url: string): Uint8Array {
@@ -116,7 +119,7 @@ function unauthorized(c: Context, reason: string): Response {
 }
 
 export const accessAuth: MiddlewareHandler<Bindings> = async (c, next) => {
-  if (isBypassActive(c.env)) return next();
+  if (isBypassActive(c.env, c.req.raw)) return next();
 
   const jwt = readJwt(c);
   if (!jwt) return unauthorized(c, "missing Cloudflare Access credentials");
@@ -156,7 +159,7 @@ export const accessAuth: MiddlewareHandler<Bindings> = async (c, next) => {
 };
 
 export const authStatusHandler = (c: Context<Bindings>): Response => {
-  if (isBypassActive(c.env)) return c.json({ authenticated: true, mode: "dev-bypass" });
+  if (isBypassActive(c.env, c.req.raw)) return c.json({ authenticated: true, mode: "dev-bypass" });
   const access = c.get("access");
   if (!access) return c.json({ authenticated: false }, 401);
   if (access.mode === "identity") {

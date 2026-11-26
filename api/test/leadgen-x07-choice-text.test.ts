@@ -317,8 +317,18 @@ const withChoiceText = (ct: unknown): LeadgenComponentNode[] =>
 
 describe("X07 byte-identity — a Section with no Answer text renders exactly as before X07", () => {
   for (const key of ["default", "list", "card"] as const) {
-    it(`[${key} design] the unset fixture equals the frozen pre-X07 bytes`, () => {
-      expect(sha(renderSectionComponents(FIXTURE, FIXTURE_DESIGNS[key]))).toBe(PRE_X07_SHA256[key]);
+    it(`[${key} design] the unset fixture preserves the pre-X07 bytes outside the two resized images`, () => {
+      const html = renderSectionComponents(FIXTURE, FIXTURE_DESIGNS[key]);
+      const path = "/media/2026/01/01/a.png";
+      const small = `/cdn-cgi/image/height=32,fit=scale-down,format=auto,quality=75${path}`;
+      const large = `/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75${path}`;
+      const local = `src="${large}" alt="A" srcset="${small} 1x, ${large} 2x" width="32" height="32"`;
+      const external = 'src="https://example.com/b.png" alt="B"';
+      const sizedExternal = `${external} width="32" height="32"`;
+      expect(html).toContain(local);
+      expect(html).toContain(sizedExternal);
+      const original = html.replace(local, `src="${path}" alt="A"`).replace(sizedExternal, external);
+      expect(sha(original)).toBe(PRE_X07_SHA256[key]);
     });
   }
 

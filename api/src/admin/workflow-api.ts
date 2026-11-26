@@ -11,6 +11,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 import {
   archive,
   cancelSchedule,
@@ -26,6 +27,10 @@ import {
 type WfContext = Context<{ Bindings: Env }>;
 
 const workflowApi = new Hono<{ Bindings: Env }>();
+
+export function adminExecutionCtx(c: WfContext): ExecutionContext | undefined {
+  return cacheExecutionCtx(c) as ExecutionContext | undefined;
+}
 
 function parseIdParam(c: WfContext, name: string): number | null {
   const id = parseInt(c.req.param(name) ?? "", 10);
@@ -62,7 +67,7 @@ workflowApi.post("/api/admin/articles/:id/publish", async (c) => {
   const id = parseIdParam(c, "id");
   if (id === null) return c.json({ error: "Invalid article id" }, 400);
   try {
-    return articleStatusJson(c, await publish(c.env, id));
+    return articleStatusJson(c, await publish(c.env, id, undefined, adminExecutionCtx(c)));
   } catch (err) {
     return mapWorkflowError(c, err, "publish failed");
   }
@@ -72,7 +77,7 @@ workflowApi.post("/api/admin/articles/:id/unpublish", async (c) => {
   const id = parseIdParam(c, "id");
   if (id === null) return c.json({ error: "Invalid article id" }, 400);
   try {
-    return articleStatusJson(c, await unpublish(c.env, id));
+    return articleStatusJson(c, await unpublish(c.env, id, adminExecutionCtx(c)));
   } catch (err) {
     return mapWorkflowError(c, err, "unpublish failed");
   }
@@ -97,7 +102,7 @@ workflowApi.post("/api/admin/articles/:id/schedule", async (c) => {
     return c.json({ error: "scheduled_at (epoch seconds) is required" }, 400);
   }
   try {
-    return articleStatusJson(c, await schedule(c.env, id, scheduledAt));
+    return articleStatusJson(c, await schedule(c.env, id, scheduledAt, adminExecutionCtx(c)));
   } catch (err) {
     return mapWorkflowError(c, err, "schedule failed");
   }
@@ -107,7 +112,7 @@ workflowApi.post("/api/admin/articles/:id/cancel-schedule", async (c) => {
   const id = parseIdParam(c, "id");
   if (id === null) return c.json({ error: "Invalid article id" }, 400);
   try {
-    return articleStatusJson(c, await cancelSchedule(c.env, id));
+    return articleStatusJson(c, await cancelSchedule(c.env, id, adminExecutionCtx(c)));
   } catch (err) {
     return mapWorkflowError(c, err, "cancel-schedule failed");
   }
@@ -117,7 +122,7 @@ workflowApi.post("/api/admin/articles/:id/archive", async (c) => {
   const id = parseIdParam(c, "id");
   if (id === null) return c.json({ error: "Invalid article id" }, 400);
   try {
-    return articleStatusJson(c, await archive(c.env, id));
+    return articleStatusJson(c, await archive(c.env, id, adminExecutionCtx(c)));
   } catch (err) {
     return mapWorkflowError(c, err, "archive failed");
   }
@@ -164,7 +169,7 @@ workflowApi.post(
       return c.json({ error: "Invalid id" }, 400);
     }
     try {
-      const result = await restoreVersion(c.env, id, versionId);
+      const result = await restoreVersion(c.env, id, versionId, undefined, adminExecutionCtx(c));
       return c.json({ ok: true, ...result });
     } catch (err) {
       return mapWorkflowError(c, err, "restore failed");

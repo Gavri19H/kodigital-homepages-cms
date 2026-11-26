@@ -88,7 +88,7 @@ describe("editor: block engine + sanitizer (T5)", () => {
       blocks: [{ type: "image", data: { src: "/media/foo.png", alt: "Foo" } }],
     });
     expect(html).toContain('loading="lazy"');
-    expect(html).toContain('src="/media/foo.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1936,fit=scale-down,quality=75,format=auto/media/foo.png"');
     expect(html).toContain('alt="Foo"');
   });
 

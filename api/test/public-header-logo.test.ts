@@ -22,7 +22,7 @@ describe("X14 — the header shows the site's uploaded logo", () => {
     expect(header).toContain('<a class="brand" href="/" aria-label="moneylantern home">');
     const brand = brandOf(header);
     expect(brand.match(/<img /g)).toHaveLength(1);
-    expect(brand).toContain(`<img class="brand-logo-img" src="${UPLOADED}"`);
+    expect(brand).toContain(`<img class="brand-logo-img" src="/cdn-cgi/image/width=400,quality=75,format=auto${UPLOADED}"`);
     expect(brand).toContain('alt="moneylantern"');
     expect(brand).toContain('width="200" height="36" loading="eager"');
     expect(brand).not.toContain("fetchpriority"); // reserved for the page's hero

@@ -42,7 +42,7 @@ import {
   placeholders,
   readJsonBody,
 } from "./shared";
-import type { VersionRowL } from "./articles-handlers";
+import { purgeListicleArticle, type VersionRowL } from "./articles-handlers";
 import {
   loadPagesForVersions,
   structureFingerprint,
@@ -197,6 +197,10 @@ export async function newRevisionVersionHandler(c: AdminContext): Promise<Respon
 
 type VersionSaveMode = "put" | "new_revision";
 
+function explicitIdChanged(requested: string | null | undefined, stored: string | null | undefined): boolean {
+  return requested != null && requested !== stored;
+}
+
 // The shared atomic save core (PUT + new-revision). `mode` differences:
 //   put           — content_version bumps only on real change; a BEHAVIORAL
 //                   change on a published article 409s (§30.7 case c).
@@ -332,6 +336,23 @@ async function applyVersionSave(
   const treeChanged =
     structureFingerprint(currentPages) !==
     structureFingerprint(preparedPages as FingerprintPage[]);
+  // The behavioral fingerprint sorts candidates and ignores public IDs. Their
+  // stored order, group IDs and fragment URLs are all part of the cached shell.
+  const storedByIndex = new Map(currentPages.map(page => [page.page_index, page]));
+  const shellTreeChanged = treeChanged || validation.pages.some(page => {
+    const stored = storedByIndex.get(page.page_index);
+    if (!stored || explicitIdChanged(page.public_id, stored.public_id)) return true;
+    if (page.selection_mode === "ab_test" &&
+        (!stored.ab_test_id || explicitIdChanged(page.ab_test_id, stored.ab_test_id))) return true;
+    if (page.selection_mode === "rule_based" &&
+        (!stored.rule_set_id || explicitIdChanged(page.rule_set_id, stored.rule_set_id))) return true;
+    return page.candidates.some((candidate, index) => {
+      const previous = stored.candidates[index];
+      return !previous || candidate.section_id !== previous.section_id || candidate.label !== previous.label ||
+        explicitIdChanged(candidate.public_id, previous.public_id) ||
+        explicitIdChanged(candidate.rule?.public_id, previous.rule?.public_id);
+    });
+  });
 
   // §15.6/§30.7 case (c): a BEHAVIORAL change to a published article's
   // Version must fork a NEW Version (new lander_v) — POST /versions/:id/fork
@@ -363,10 +384,7 @@ async function applyVersionSave(
       );
     }
   }
-  const contentVersion =
-    mode === "new_revision"
-      ? version.content_version + 1
-      : version.content_version + (fieldsChanged || treeChanged ? 1 : 0);
+  const bumpRevision = mode === "new_revision" || fieldsChanged || shellTreeChanged;
 
   // ATOMIC replace: update fields, drop the old page tree (candidates +
   // rules cascade), reinsert the new tree. Later statements attach through
@@ -377,7 +395,8 @@ async function applyVersionSave(
     c.env.DB.prepare(
       `UPDATE listicle_article_versions
        SET headline = ?, intro_paragraph = ?, hero_media_id = ?, hero_media_url = ?,
-           layout_style_id = ?, byline_json = ?, ai_settings_json = ?, content_version = ?
+           layout_style_id = ?, byline_json = ?, ai_settings_json = ?,
+           content_version = content_version + CASE WHEN ? OR content_version <> ? THEN 1 ELSE 0 END
        WHERE id = ?`,
     ).bind(
       fields.headline,
@@ -387,12 +406,15 @@ async function applyVersionSave(
       fields.layout_style_id,
       byline.json,
       fields.ai_settings_json,
-      contentVersion,
+      bumpRevision ? 1 : 0,
+      version.content_version,
       version.id,
     ),
     c.env.DB.prepare("DELETE FROM listicle_pages WHERE article_version_id = ?").bind(version.id),
   ];
-  for (const page of preparedPages) {
+  // A legacy client can re-submit an identical tree with no public IDs. Keep
+  // the IDs already rendered into the shell and its candidate fragment links.
+  for (const page of shellTreeChanged ? preparedPages : currentPages) {
     statements.push(
       c.env.DB.prepare(
         `INSERT INTO listicle_pages
@@ -457,6 +479,7 @@ async function applyVersionSave(
     return c.json({ error: `Version save failed: ${message}` }, 500);
   }
 
+  await purgeListicleArticle(c, version.article_id, mode === "put" ? "listicle.version.update" : "listicle.version.new-revision");
   const savedVersion = await c.env.DB.prepare(
     "SELECT * FROM listicle_article_versions WHERE id = ? LIMIT 1",
   )

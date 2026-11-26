@@ -163,6 +163,8 @@ function createDb(ctor: DatabaseSyncCtor): SqliteDb {
       "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, title TEXT, seo_title TEXT);" +
       // X06: migration 0070 adds verticals.audience and 0071 fixes articles.seo_title, so the stub needs both.
       "CREATE TABLE verticals (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, name TEXT);" +
+      // P1: migration 0073 indexes cache_purge_log
+      "CREATE TABLE cache_purge_log (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, action TEXT NOT NULL, status TEXT NOT NULL, dry_run INTEGER NOT NULL DEFAULT 1, allow_route_mutation INTEGER NOT NULL DEFAULT 0, payload TEXT, response TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()));" +
       "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       `INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','${TENANT_HOST}','insurance','active');` +
       `INSERT INTO domains (site_id, hostname, status) VALUES ('site-1','${TENANT_HOST}','active');`,

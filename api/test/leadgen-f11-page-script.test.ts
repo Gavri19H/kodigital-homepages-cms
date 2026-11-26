@@ -431,22 +431,22 @@ describe("F11 page script — ships in the shell, outside the visitor bundle", (
     expect(() => new Function(REDIRECT_PAGE_SCRIPT)).not.toThrow();
   });
 
-  it("the funnel shell embeds it as its own inline script, after the pre-hydration stub and before the bundle", () => {
+  it("the inline redirect runs after the pre-hydration stub and before the deferred head bundle executes", () => {
     const serve = readFileSync(join(HERE, "../src/public/leadgen/serve.ts"), "utf8");
     const pre = serve.indexOf("`<script>${LEADGEN_PREHYDRATE_JS}</script>` +");
     const own = serve.indexOf("`<script>${REDIRECT_PAGE_SCRIPT}</script>` +");
-    const bundle = serve.indexOf("`<script src=\"/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js\" defer></script>` +");
-    expect(pre).toBeGreaterThan(-1);
+    const bundle = serve.indexOf('`<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="');
+    const headEnd = serve.indexOf('"</head>" +');
+    expect(bundle).toBeGreaterThan(-1);
+    expect(headEnd).toBeGreaterThan(bundle);
+    expect(pre).toBeGreaterThan(headEnd);
     expect(own).toBeGreaterThan(pre);
-    expect(bundle).toBeGreaterThan(own);
   });
 
   // The page script never rides the visitor bundle: the bundle's exact size is
-  // pinned (53,315 at F11; 57,151 since F18 added the vehicle lookups, the
-  // {make}/{year} headline names and the "Go to next" fixes, 2026-11-23) and it
-  // carries no redirect code.
-  it("the visitor bundle is unchanged by the page script: same 57,151 bytes, and it knows nothing of the redirect", () => {
-    expect(LEADGEN_RUNTIME_JS.length).toBe(57151);
+  // pinned at 57,342 bytes for v17, which consumes the shell's early attempt.
+  it("the v17 visitor bundle is exactly 57,342 bytes and carries no redirect code", () => {
+    expect(LEADGEN_RUNTIME_JS.length).toBe(57342);
     expect(LEADGEN_RUNTIME_JS).not.toContain("lg_rc");
     expect(LEADGEN_RUNTIME_JS).not.toContain("data-lg-redirect");
   });

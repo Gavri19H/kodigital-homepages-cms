@@ -216,11 +216,17 @@ describe("T37-AC2 CF route/DNS teardown + cache purge calls are made (fetch-mock
     const actions = purgeInserts.map((c) => c.binds[2]);
     expect(actions).toContain("teardown_route");
     expect(actions).toContain("purge_cache");
-    // Every recorded row is flagged dry_run=1 (binds: site_id, hostname,
-    // action, status, dry_run, allow_route_mutation, payload, response).
+    // Edge inserts bind the action second. Legacy teardown inserts bind dry_run fifth.
+    const edgeActions = [];
     for (const c of purgeInserts) {
-      expect(c.binds[4]).toBe(1);
+      const action = c.binds[1];
+      if (action === "purge_tags" || action === "purge_tags_second") {
+        edgeActions.push(action);
+      } else {
+        expect(c.binds[4]).toBe(1);
+      }
     }
+    expect(edgeActions).toEqual(["purge_tags", "purge_tags_second"]);
   });
 
   it("[api/test/site-delete.test.ts] L2_AUTO_DISAMBIGUATION:T37-AC2:RC-064 live teardown issues the Worker-route DELETE + the purge_cache POST, all to api.cloudflare.com (fetch-mocked)", async () => {

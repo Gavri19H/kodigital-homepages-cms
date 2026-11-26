@@ -1,6 +1,6 @@
-// T21 / RC-038 behavioral proof (T21-AC1): article images emit a srcset +
-// a blur-up (LQIP) placeholder + a /media/-prefixed src at the design
-// dimensions — article hero (1200×630), card 16/10 (640×400), and the
+// T21 / RC-038 behavioral proof (T21-AC1): article images emit transformed
+// src and srcset URLs at the design dimensions for the
+// article hero (1200×630), card 16/11 (640×440), and the
 // sidebar 60×60 thumb. The proof renders renderArticle() and inspects the
 // emitted <img> markup directly (behavioral, not a source grep); the
 // responsiveImg primitive is also unit-tested for srcset correctness +
@@ -128,12 +128,7 @@ function makeArticleVm(overrides: Partial<ArticleViewModel> = {}): ArticleViewMo
   };
 }
 
-// RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Cloudflare Image
-// Resizing IS enabled on the zone, so a rendered responsive <img> carries the
-// bare /media/-prefixed src (the always-served Worker fallback), explicit
-// width/height (anti-CLS), AND a srcset of /cdn-cgi/image/...,format=auto
-// candidates (the ~2MB source PNG served as a resized WebP/AVIF). Every srcset
-// candidate points at the transform route, which now returns 200.
+// Every local URL, including the fallback, requests a resized media asset.
 function assertResponsive(
   tag: string | undefined,
   expectMediaKey: string,
@@ -145,7 +140,7 @@ function assertResponsive(
 
   const src = attr(img, "src");
   expect(src, `missing src: ${img}`).not.toBeNull();
-  expect(src!.startsWith("/media/"), `src not /media/-prefixed (fallback): ${src}`).toBe(true);
+  expect(src).toBe(`/cdn-cgi/image/width=${2 * Number(expectWidth)},quality=75,format=auto/media/${expectMediaKey}`);
   expect(src!).toContain(expectMediaKey);
 
   // The responsive srcset of Cloudflare transform candidates (resize + WebP).
@@ -167,7 +162,7 @@ function assertResponsive(
 }
 
 describe("responsive-images", () => {
-  it("T21.AC1 article hero + card 16/10 + sidebar 60×60 emit a /cdn-cgi srcset (resize+WebP) + /media/ src fallback at design dims [api/test/responsive-images.test.ts]", () => {
+  it("T21.AC1 article hero + card 16/11 + sidebar 60×60 emit transformed srcset and src at design dims [api/test/responsive-images.test.ts]", () => {
     const html = renderArticle({ vm: makeArticleVm(), emitJsonLd: false });
 
     // Article hero (LCP candidate): 1200×630, eager + fetchpriority="high".
@@ -206,8 +201,8 @@ describe("responsive-images", () => {
     expect(attr(pop!, "fetchpriority")).toBeNull();
   });
 
-  it("T21.AC1 responsiveImg primitive: bare /media/ src fallback + a /cdn-cgi srcset (resize+WebP, Image Resizing on), transform helpers correct [api/test/responsive-images.test.ts]", () => {
-    // A bare storage key resolves to the /media/ public route (the fallback src).
+  it("T21.AC1 responsiveImg primitive: resized fallback and srcset, transform helpers correct [api/test/responsive-images.test.ts]", () => {
+    // A bare storage key targets the same /media/ asset in every transform.
     const tag = responsiveImg({
       src: "abc123.jpg",
       alt: "Alt text",
@@ -217,7 +212,7 @@ describe("responsive-images", () => {
       loading: "lazy",
       sizes: "100vw",
     });
-    expect(attr(tag, "src")).toBe("/media/abc123.jpg");
+    expect(attr(tag, "src")).toBe("/cdn-cgi/image/width=2400,quality=75,format=auto/media/abc123.jpg");
     expect(attr(tag, "width")).toBe("1200");
     expect(attr(tag, "height")).toBe("630");
     expect(attr(tag, "sizes")).toBe("100vw");

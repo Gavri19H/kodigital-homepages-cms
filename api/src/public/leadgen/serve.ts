@@ -40,13 +40,9 @@
 // `resolved.assignment.funnel_ab_test_revision` — the same axis
 // leadgenConfigKey documents (cache-keys.ts).
 //
-// The browser Google-Maps key (§30.2 referrer-restricted browser key) is
-// injected PER-REQUEST via Stage-A resolveBrowserMapsKey and ONLY when the
-// funnel has a Maps-enabled address/ZIP component — it NEVER enters the cached
-// shell HTML (§30.4). The cached body carries only a sentinel comment; the key
-// script is spliced onto the RESPONSE stream, mirroring the listicle
-// post-cache injectListicleContext pattern (the KV entry stays
-// visitor-invariant).
+// A Maps-enabled address/ZIP component gets the referrer-restricted browser
+// key after the KV read (§30.2/§30.4). A gateway-selected shell includes that
+// script and leaves the assignment sentinel for the visitor's response.
 //
 // The shell carries the funnel_id (lgf_) and funnel_variant_id (lgn_) as
 // DISTINCT data attributes (contract 06 §15.1 G4 — never aliased), branded
@@ -55,7 +51,10 @@
 import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
+import { VITALS_BEACON } from "../../edge/vitals";
 import type { PublicSiteVariables } from "../middleware";
+import type { PreparedFunnelBundle } from "./bundle";
+import { cacheExecutionCtx } from "../html-pipeline";
 import { escapeHtml } from "../../editor/sanitize";
 import { REDIRECT_PAGE_SCRIPT } from "./redirect/page-script";
 import {
@@ -88,6 +87,7 @@ import { flattenComponents } from "./components/content-schema";
 import { COMPONENT_CATALOG } from "./components/registry";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+import { LEADGEN_FONT_FACE_CSS } from "./designs/fonts.generated";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
@@ -151,10 +151,21 @@ import {
   matchesIfNoneMatch,
 } from "../../cache/edge-cache";
 import { siteIconHeadTags, DEFAULT_BRAND_COLOR, absoluteOnHost } from "../site-brand";
+import { cfTransform } from "../templates/responsive-img";
 
 function funnelOgLogoTag(hostname: string | null, logoUrl: string | null): string {
-  if (hostname === null) return "";
-  const abs = absoluteOnHost(hostname, logoUrl);
+  if (hostname === null || logoUrl === null) return "";
+  let path = logoUrl;
+  try {
+    const site = new URL(`https://${hostname}`);
+    const logo = new URL(logoUrl, logoUrl.startsWith("/") ? site : undefined);
+    if (logo.origin === site.origin && logo.pathname.startsWith("/media/")) {
+      path = cfTransform(logo.pathname, "width=1200,fit=scale-down") + logo.search + logo.hash;
+    }
+  } catch {
+    // Keep the existing root-relative fallback for unparseable URLs.
+  }
+  const abs = absoluteOnHost(hostname, path);
   return abs === null ? "" : `<meta property="og:image" content="${escapeHtml(abs)}">`;
 }
 
@@ -172,9 +183,8 @@ type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
 const DEFAULT_TTL_SECONDS = 300;
 
-// The sentinel the cached shell carries in <head>. injectMapsKey replaces it on
-// the RESPONSE only — so the Maps browser key is never part of the cached body
-// / ETag material (§30.4). Absent-key funnels get the sentinel stripped.
+// The KV shell carries this sentinel in <head>. injectMapsKey replaces it
+// after the read, keeping the browser key out of the KV body and ETag.
 const MAPS_KEY_SENTINEL = "<!--LG_MAPS_KEY-->";
 
 // The sentinel the cached shell carries for the §16.3 A/B assignment. The
@@ -183,8 +193,7 @@ const MAPS_KEY_SENTINEL = "<!--LG_MAPS_KEY-->";
 // NOT emitted on this `public` response (m1): the shell is a public, cacheable
 // artifact and a per-session datum must not ride it. The P11 quote_view beacon
 // recomputes the bucket itself from its own ko_sid + the injected non-session
-// funnel_ab_test_id/revision (§16.2 edge/client parity). Mirrors the Maps-key
-// sentinel discipline exactly.
+// funnel_ab_test_id/revision (§16.2 edge/client parity).
 const ASSIGN_SENTINEL = "<!--LG_ASSIGN-->";
 
 // /lg/config Cache-Control (contract 03 §4.3 route map): a shared-cache
@@ -360,22 +369,26 @@ function jsStringLiteral(value: string): string {
 //   (c) absent id ⇒ emit NOTHING;
 //   (d) /lg/track is a header-only no-store beacon — it never touches
 //       window.dataLayer (proven in leadgen-ga4.spec.ts).
-// The measurement id is operator-authored, so it is escaped for BOTH the JS-string
-// context (jsStringLiteral) and the URL/attribute context (encodeURIComponent +
-// escapeHtml) — no `</script>` / markup can be forged. The shell sets no CSP, so
+// The measurement id is a URL component in the loader and a raw id in config.
+// Both values become JS string literals in the inline script. The shell sets no CSP, so
 // no host allowlist is required; if one is ever added it MUST allow
 // www.googletagmanager.com.
 function ga4HeadSnippet(measurementId: string | null): string {
   if (measurementId === null) return "";
   const id = measurementId.trim();
   if (id === "") return "";
-  const srcId = encodeURIComponent(id);
+  const src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(id);
   return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(srcId)}"></script>` +
     "<script>window.dataLayer=window.dataLayer||[];" +
     "function gtag(){dataLayer.push(arguments);}" +
     "gtag('js',new Date());" +
-    `gtag('config',${jsStringLiteral(id)});</script>`
+    `gtag('config',${jsStringLiteral(id)});` +
+    "(function(w,d){var script;function insert(){if(script)return;" +
+    "script=d.createElement('script');script.async=true;" +
+    `script.src=${jsStringLiteral(src)};d.head.appendChild(script);}` +
+    "if(w.requestAnimationFrame)d.addEventListener('DOMContentLoaded',function(){" +
+    "w.requestAnimationFrame(function(){w.setTimeout(insert,0);});},{once:true});" +
+    "w.addEventListener('load',insert,{once:true});})(window,document);</script>"
   );
 }
 
@@ -548,8 +561,12 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "<script>(function(w,d){var C=" + json + ";" +
     "if(w.__lgPx){return;}w.__lgPx=1;" +
     "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
-    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;" +
-    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
+    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];" +
+    "function insert(){if(t)return;t=b.createElement(e);t.async=!0;t.src=v;" +
+    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);}" +
+    "if(f.requestAnimationFrame)b.addEventListener('DOMContentLoaded',function(){" +
+    "f.requestAnimationFrame(function(){f.setTimeout(insert,0);});},{once:true});" +
+    "f.addEventListener('load',insert,{once:true});}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
     "var I={},A={},M={},H=Object.prototype.hasOwnProperty;" +
     "function rid(){var a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',s='',i,r=null;" +
     "try{r=w.crypto.getRandomValues(new Uint8Array(20));}catch(x){}" +
@@ -690,7 +707,7 @@ function injectMapsKey(pristine: string, resolved: ResolvedActivatedFunnel, env:
 // funnel_ab_test_revision (edge/client parity). This matches the cached /lg/config
 // DTO, which already omits the per-session bucket. `<` is neutralized so an
 // authored variant_label can never forge </script> / markup.
-function injectAssignment(
+export function injectAssignment(
   html: string,
   assignment: FunnelAssignment,
   funnelVariantId: string,
@@ -1074,6 +1091,14 @@ const LEADGEN_PREHYDRATE_JS =
   "q.push({el:el,t:Date.now()});" +
   "},true);})();";
 
+// Build links from the generated face rules so a changed font hash also
+// changes its preload. Theme stacks start with the selected, quoted family.
+const fontPreloadsByFamily = new Map(Object.entries(LEADGEN_FONT_FACE_CSS).map(([family, faces]) => [
+  `'${family}'`,
+  Array.from(faces.matchAll(/src:url\("([^"]+)"\)/g),
+    ([, path]) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`).join(""),
+]));
+
 // Render the pristine funnel shell (v2.4 03 §3.2): scoped chrome CSS from the
 // resolved design + EVERY Section of the resolved variant server-rendered in
 // order inside the data-lg-mount (first section visible — the first question
@@ -1126,6 +1151,8 @@ function renderFunnelShell(
   const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
+  const firstScreenFamilies = new Set([effectiveDesign.page.fontFamily, effectiveDesign.page.fontDisplay]
+    .map(stack => stack.split(",", 1)[0]!.trim()));
   const chromeCss =
     composition === null
       ? funnelChromeCss(design, scope)
@@ -1178,10 +1205,22 @@ function renderFunnelShell(
 
   return (
     "<!doctype html>" +
-    '<html lang="en">' +
+    '<html lang="en" data-pt="quote">' +
     "<head>" +
     '<meta charset="utf-8">' +
+    // Shared by the variant's visitors. The browser supplies its own landing
+    // URL and the runtime validates the parsed attempt when it hydrates.
+    `<script>{const vid=${jsStringLiteral(funnelVariantId)};` +
+    'window.__LG_ATTEMPT_P__={vid,p:(async()=>{try{' +
+    'const res=await fetch("/lg/attempt?vid="+encodeURIComponent(vid)+"&u="+encodeURIComponent(location.href),' +
+    '{method:"GET",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});' +
+    'return res.ok?await res.json():null}catch{return null}})()}}</script>' +
+    `<link rel="preload" as="script" href="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js">` +
+    // A request routed to the older Worker can race the gateway's runtime cache fill.
+    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="this.onerror=null;` +
+    `setTimeout(()=>{const retry=document.createElement('script');retry.src=this.src;document.head.appendChild(retry)},400)"></script>` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    Array.from(firstScreenFamilies, family => fontPreloadsByFamily.get(family) ?? "").join("") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
     // the tab shows the site's public name, never the internal funnel name.
     '<meta name="robots" content="noindex">' +
@@ -1214,9 +1253,7 @@ function renderFunnelShell(
     // results page the auction did not turn into a redirect screen
     // (redirect/page-script.ts). Static: nothing interpolated.
     `<script>${REDIRECT_PAGE_SCRIPT}</script>` +
-    // (c) the hydration engine — versioned, deferred; the /lg/runtime/:version.js
-    // route serves the generated bundle (03 §3.2 runtime-routes row).
-    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>` +
+    VITALS_BEACON +
     "</body></html>"
   );
 }
@@ -1225,13 +1262,7 @@ function renderFunnelShell(
 // Route handlers
 // ---------------------------------------------------------------------------
 
-// GET /lg (root activation) + GET /lg/:quote_slug — the cacheable funnel shell.
-export async function serveFunnelShell(
-  c: PublicContext,
-  quoteSlug: string | null,
-): Promise<Response> {
-  const siteContext = c.get("siteContext");
-
+function readFunnelVisitor(c: PublicContext) {
   // §16.2 sticky assignment: read the ko_sid session cookie (generate + set it
   // when absent, same semantics as the listicle runtime) and thread it into the
   // resolver, which runs the deterministic edge hash BEFORE the cache key is
@@ -1263,11 +1294,36 @@ export async function serveFunnelShell(
     ...parseUtmFromLandingUrl(c.req.url),
   };
 
-  const resolved = await resolveActivatedFunnel(c.env, {
+  return { sid, sidWasAbsent, entryCtx };
+}
+
+export async function loadFunnelShellInputs(env: Env, resolved: ResolvedActivatedFunnel) {
+  const [answerMapVersions, themeRecord, clickEvents] = await Promise.all([
+    loadAnswerMapVersions(env.DB, resolved.sections),
+    resolveThemeRecordFor(env, frameSourceOf(resolved)),
+    funnelOfferClickEventOn(env.DB, resolved.variant.auction_id),
+  ]);
+  return { answerMapVersions, themeRecord, clickEvents };
+}
+
+// GET /lg (root activation) + GET /lg/:quote_slug — the cacheable funnel shell.
+export async function serveFunnelShell(
+  c: PublicContext,
+  quoteSlug: string | null,
+  prepared?: PreparedFunnelBundle | null,
+): Promise<Response> {
+  const siteContext = c.get("siteContext");
+  const variantKey = c.req.header("x-cms-variant");
+  // A null bundle means the selected variant is no longer served at this slug.
+  const edgeFunnel = prepared === undefined && variantKey?.startsWith("lg:")
+    ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3), { quoteSlug }).catch(() => null)
+    : prepared?.resolved ?? null;
+  const visitor = edgeFunnel === null ? readFunnelVisitor(c) : null;
+  const resolved = visitor === null ? edgeFunnel : await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
     quote_slug: quoteSlug,
-    session_id: sid,
-    entry_ctx: entryCtx,
+    session_id: visitor.sid,
+    entry_ctx: visitor.entryCtx,
   });
   // Disabled / missing activation → 404 (the reserved /lg head never falls
   // through to publicRouter's /:slug catch-all — §17.2 / §4.3).
@@ -1298,73 +1354,48 @@ export async function serveFunnelShell(
   // A freshly-minted ko_sid rides the RESPONSE (never the cached body) so the
   // assignment is sticky across this session's requests (§16.2).
   const withSession = (headers: Headers): Headers => {
-    if (sidWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", sid));
+    if (visitor?.sidWasAbsent) headers.append("Set-Cookie", sessionCookie("ko_sid", visitor.sid));
     return headers;
   };
 
-  // LeadGen Rework §4.3-9 (entry plane): the matched entry rule's redirect_pct
-  // sends its sticky per-session share to the redirect target (the offer-
-  // governed /lg/lc URL or an allowlisted raw URL) INSTEAD of our funnel. The
-  // remainder fall through to the shell below (the funnel is already pre-
-  // selected by resolveActivatedFunnel; feed/multiplier are recorded when the
-  // engine then calls /lg/attempt). Runs BEFORE the If-None-Match/cache legs so
-  // a redirected visitor never gets a 304/shell. The 302 is no-store and rides
-  // the freshly-minted ko_sid so the decision is sticky across a reload (§4.3-6)
-  // — the SAME session hash always lands the same verdict. No funnel_attempt_id
-  // exists at shell-serve, so the redirect decision is not recorded here.
-  const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, entryCtx, sid);
-  if (redirectTo !== null) {
-    const rh = new Headers();
-    rh.set("Location", redirectTo);
-    rh.set("Cache-Control", "no-store");
-    rh.set(NOSNIFF_HEADER, NOSNIFF_VALUE);
-    return new Response(null, { status: 302, headers: withSession(rh) });
-  }
+  if (visitor !== null) {
+    // The gateway handles both redirects and conditional requests for an edge-selected shell.
+    // On a direct visit the sticky redirect takes precedence over If-None-Match (§4.3-9).
+    const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, visitor.entryCtx, visitor.sid, resolved.routing_rules);
+    if (redirectTo !== null) {
+      const rh = new Headers();
+      rh.set("Location", redirectTo);
+      rh.set("Cache-Control", "no-store");
+      rh.set(NOSNIFF_HEADER, NOSNIFF_VALUE);
+      return new Response(null, { status: 302, headers: withSession(rh) });
+    }
 
-  const ifNoneMatch = c.req.header("If-None-Match") ?? null;
-  if (matchesIfNoneMatch(ifNoneMatch, etag)) {
-    return new Response(null, { status: 304, headers: withSession(publicHtmlCacheHeaders({ etag })) });
+    const ifNoneMatch = c.req.header("If-None-Match") ?? null;
+    if (matchesIfNoneMatch(ifNoneMatch, etag)) {
+      return new Response(null, { status: 304, headers: withSession(publicHtmlCacheHeaders({ etag })) });
+    }
   }
 
   let pristine: string;
   let vehicleDegraded = false;
-  const cached = await getCachedHtml(c.env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = prepared ? null : await getCachedHtml(c.env, key, waitUntil);
   if (cached !== null) {
     pristine = cached.body;
   } else {
-    // R6 (v2.4 03 §3.8): the per-section answer-map version markers, read at
-    // resolve time on the COLD path only (a cache hit already carries them
-    // baked into #lg-config).
-    const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
-    // v3.1 §10.1/§12: the SAME cold-path-only discipline for the theme_id KV
-    // read — a cache hit already carries whatever theme was baked in at write
-    // time. A theme_json/frame_overrides_json EDIT bumps content_version (§3.1),
-    // which busts this cache key; and a THEME RECORD content edit
-    // (updateThemeHandler) now fans out through P6b's scheduleThemeInvalidate —
-    // it sweeps every funnel referencing that theme_id and invalidates each
-    // activated site's shell cache (themes-handlers.ts invalidateThemeAcross-
-    // Funnels → invalidateOnVariantPublish), so an edited preset re-renders on
-    // the next request (the earlier "open concern" is closed). A funnel whose
-    // frame_config_json is NULL but whose theme_json carries an EXPLICIT
-    // theme_id also now composes on the frame path (resolveFrameComposition's
-    // narrow default, register R4 item 10I) instead of being dropped by the
-    // legacy frameless fork below.
-    const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
-    // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
-    // cache hit already carries whatever saved template defaults were baked
-    // in at write time. S1.4 bumps content_version at both re-point
-    // endpoints (quotes-handlers.ts PUT /variants/:id frame_template_id, and
-    // apply-to-funnel via bumpActiveVariantContentVersions), busting this
-    // shell's cache key — permanent coverage in leadgen-rework-handlers.
-    // test.ts's "cache coherence" tests.
-    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
-    // 2026-10-08 Facebook events — cold path only, like every other read here:
-    // the funnel's own pixel (a pixel edit bumps content_version → new key) and
-    // whether an Offer of THIS funnel's auction has its click event on (one
-    // LIMIT 1 read — fix round 1, review m3).
+    const savedTemplateDefaults = resolved.saved_template_defaults ?? null;
+    const pageNodes = resolved.sections.flatMap((rs) =>
+      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
+    );
+    // The global vehicle catalogue and its media can publish independently of
+    // this site's snapshot. Resolve them at render time as before.
+    const [{ answerMapVersions, themeRecord, clickEvents }, vehicle] = await Promise.all([
+      prepared?.shell ?? loadFunnelShellInputs(c.env, resolved),
+      loadVehicleRenderData(c.env, pageNodes).catch(() => null),
+    ]);
     const metaPixel: LeadgenMetaPixelShell = {
       funnel_pixel_id: funnelMetaPixelId(resolved),
-      click_events: await funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+      click_events: clickEvents,
       fields: {},
       variant_id: resolved.variant.public_id,
     };
@@ -1379,10 +1410,6 @@ export async function serveFunnelShell(
     // 5-minute shell TTL picks up a new snapshot, and the old snapshot's files
     // stay readable for 30+ days, so a cached page never points at a missing
     // lookup.
-    const pageNodes = resolved.sections.flatMap((rs) =>
-      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
-    );
-    const vehicle = await loadVehicleRenderData(c.env, pageNodes).catch(() => null);
     // A funnel WITH vehicle questions rendered WITHOUT the list (a failed or
     // missing read) is degraded: its Make / Year / Model are text boxes. It is
     // served, never cached (KV, edge or browser), so the next request retries.
@@ -1391,14 +1418,15 @@ export async function serveFunnelShell(
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
-    if (!vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag });
+    if (!prepared && !vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag }, waitUntil);
   }
 
-  // Per-request injections on the RESPONSE stream only (never cached): the Maps
-  // key, then the NON-session §16.3 assignment dims (the per-session bucket is
-  // deliberately null on this public shell — the client recomputes it, m1).
+  // Both paths splice the site's Maps key after the KV read. An edge-selected
+  // shell retains the assignment sentinel for the gateway.
   let body = injectMapsKey(pristine, resolved, c.env);
-  body = injectAssignment(body, resolved.assignment, toFunnelVariantId(resolved.variant.public_id));
+  if (visitor !== null) {
+    body = injectAssignment(body, resolved.assignment, toFunnelVariantId(resolved.variant.public_id));
+  }
   const headers = withSession(publicHtmlCacheHeaders({ etag }));
   if (vehicleDegraded) {
     // F18: never let a browser or the CDN keep the degraded (text-box) page.
@@ -1445,7 +1473,8 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
   }
 
   let body: string;
-  const cached = await getCachedHtml(c.env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await getCachedHtml(c.env, key, waitUntil);
   if (cached !== null) {
     body = cached.body;
   } else {
@@ -1470,7 +1499,7 @@ export async function serveLeadgenConfig(c: PublicContext): Promise<Response> {
     // leadgen-config-dto.test.ts; re-proven over HTTP in the runtime test).
     body = JSON.stringify(buildPublicConfig(resolved, effectiveDesign, answerMapVersions));
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
-    await putCachedHtml(c.env, key, body, { expirationTtl: ttl, etag });
+    await putCachedHtml(c.env, key, body, { expirationTtl: ttl, etag }, waitUntil);
   }
   return new Response(body, { status: 200, headers: leadgenConfigCacheHeaders(etag) });
 }

@@ -138,7 +138,7 @@ test.describe("public funnel shell on a tenant host (§17.2 / §28 / v2.4 03 §3
     // (b) the inline #lg-config carries the SAME LeadgenPublicConfig JSON.
     expect(servedHtml).toContain('<script type="application/json" id="lg-config">');
     // (c) the deferred hydration-engine bundle script (versioned route).
-    expect(servedHtml).toMatch(/<script src="\/lg\/runtime\/[^"]+\.js" defer><\/script>/);
+    expect(servedHtml).toMatch(/<script src="\/lg\/runtime\/[^"]+\.js" defer onerror="[^"]+"><\/script>/);
     // The minimal pre-hydration click-queue stub replaced LEADGEN_BOOTSTRAP_JS.
     expect(servedHtml).toContain("__LG_PREHYDRATE_QUEUE__");
     // (a) sections are SERVER-rendered: the first section's question markup is

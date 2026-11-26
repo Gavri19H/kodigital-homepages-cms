@@ -18,13 +18,13 @@
 //
 // FAIL-OPEN: every KV op is contained (a list/delete hiccup never throws into the
 // admin write). The ONLY throw is the RED-LINE empty-site_id refusal (the global-
-// wipe / cross-tenant-leak guard); callers schedule these on waitUntil so even
-// that guard can never break the write.
+// wipe / cross-tenant-leak guard). Handlers validate the site before the write.
 //
 // WARM: deferred (§28 warm is the perf optimization; correct invalidation is the
 // hard requirement). The first visitor after an activation cold-renders the shell
 // and write-throughs it (serve.ts), lazily re-priming the cache — no warm cron.
 
+import { leadgenPublicChange } from "../../edge/leadgen-change";
 import type { Env } from "../../env";
 
 const NS_LG_SHELL = "lg-shell";
@@ -105,12 +105,21 @@ async function deleteByPrefix(
 export async function invalidateOnQuoteActivation(
   env: Env,
   siteId: string,
+  quotePublicIdOrCtx?: string | ExecutionContext,
+  ctx?: ExecutionContext,
 ): Promise<LeadgenInvalidateResult> {
   const sid = requireSiteId(siteId);
-  let deleted = 0;
-  deleted += await deleteByPrefix(env, `${NS_LG_SHELL}:${sid}:`);
-  deleted += await deleteByPrefix(env, `${NS_LG_CONFIG}:${sid}:`);
-  return { site_id: sid, cache_keys_deleted: deleted };
+  const quotePublicId = typeof quotePublicIdOrCtx === "string" ? quotePublicIdOrCtx : undefined;
+  const executionCtx = typeof quotePublicIdOrCtx === "object" ? quotePublicIdOrCtx : ctx;
+  const [shells, configs] = await Promise.all([
+    deleteByPrefix(env, `${NS_LG_SHELL}:${sid}:`),
+    deleteByPrefix(env, `${NS_LG_CONFIG}:${sid}:`),
+  ]);
+  // A miss after the edge purge must read the new activation from the legacy layer.
+  await leadgenPublicChange(env, executionCtx, {
+    siteId: sid, activationQuotePublicId: quotePublicId, reason: "leadgen.quote.activation",
+  });
+  return { site_id: sid, cache_keys_deleted: shells + configs };
 }
 
 // §28 variant publish — the content_version bump is the correctness mechanism (a
@@ -121,6 +130,20 @@ export async function invalidateOnQuoteActivation(
 // empty site_id is refused). An empty funnel_id narrows to nothing (a safe no-op,
 // never a wider wipe).
 export async function invalidateOnVariantPublish(
+  env: Env,
+  siteId: string,
+  funnelId: string,
+  ctx?: ExecutionContext,
+): Promise<LeadgenInvalidateResult> {
+  const sid = requireSiteId(siteId);
+  const eviction = await evictVariantPublishKv(env, sid, funnelId);
+  await leadgenPublicChange(env, ctx, { siteId: sid, funnelPublicId: funnelId, reason: "leadgen.variant.publish" });
+  return eviction;
+}
+
+// A write affecting multiple funnels or sites merges its edge tags separately.
+// It can still evict every legacy per-funnel KV namespace using this same code.
+export async function evictVariantPublishKv(
   env: Env,
   siteId: string,
   funnelId: string,

@@ -21,6 +21,7 @@
 // is ES5 (hard rule).
 
 import { escapeHtml } from "../../../../editor/sanitize";
+import { responsiveSrcAttrs } from "../../../templates/responsive-img";
 import type { ListicleLayout, ListicleShellVm, ListiclePageVm } from "../registry";
 import { defaultLayoutCssVars } from "./styles";
 
@@ -64,11 +65,18 @@ const DISCLOSURE_PANEL_COPY =
   "the partners whose offers appear here; compensation may affect how and " +
   "where offers are displayed. We do not include every available provider.";
 
+function brandMark(brand: HostBrand, loading: "eager" | "lazy"): string {
+  // Both placements use the measured 232.7 × 40 slot. The brand settings
+  // supply only a URL, so reserve the box and fit the logo at its own ratio.
+  const width = 233;
+  const sources = responsiveSrcAttrs(brand.logoUrl, width, { sizes: `${width}px`, fit: "scale-down" });
+  const name = escapeHtml(brand.siteName);
+  if (!sources) return `<span class="lst-logo-text">${name}</span>`;
+  return `<img ${sources} alt="${name}" width="${width}" height="40" style="width:${width}px;max-width:100%;object-fit:contain;object-position:left center" loading="${loading}" decoding="async">`;
+}
+
 export function renderHostLogo(brand: HostBrand): string {
-  if (brand.logoUrl !== null && brand.logoUrl !== "") {
-    return `<a class="lst-logo" href="/"><img src="${escapeHtml(brand.logoUrl)}" alt="${escapeHtml(brand.siteName)}" decoding="async"></a>`;
-  }
-  return `<a class="lst-logo" href="/"><span class="lst-logo-text">${escapeHtml(brand.siteName)}</span></a>`;
+  return `<a class="lst-logo" href="/">${brandMark(brand, "eager")}</a>`;
 }
 
 export function renderListicleHeader(brand: HostBrand): string {
@@ -98,10 +106,7 @@ const FOOTER_LEGAL_COPY =
 // hostname param stays for future host-specific footer needs.
 export function renderListicleFooter(brand: HostBrand, hostname: string): string {
   void hostname;
-  const logo =
-    brand.logoUrl !== null && brand.logoUrl !== ""
-      ? `<a class="lst-footer-logo" href="/"><img src="${escapeHtml(brand.logoUrl)}" alt="${escapeHtml(brand.siteName)}" loading="lazy" decoding="async"></a>`
-      : `<a class="lst-footer-logo" href="/"><span class="lst-logo-text">${escapeHtml(brand.siteName)}</span></a>`;
+  const logo = `<a class="lst-footer-logo" href="/">${brandMark(brand, "lazy")}</a>`;
   const year = new Date().getUTCFullYear();
   return [
     `<footer class="lst-footer">`,

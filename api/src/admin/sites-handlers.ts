@@ -28,6 +28,9 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { hostTag, siteTag } from "../edge/tags";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 import {
   assertNotProtectedDomain,
   normalizeHostname,
@@ -35,7 +38,6 @@ import {
 import {
   scheduleBackgroundProvisioning,
   TOTAL_STEPS,
-  type WaitUntilCtx,
 } from "../site-provisioning";
 import { runCloudflareSiteTeardown } from "../site-provisioning/cloudflare-interfaces";
 import { SITE_STATUS_NEXT } from "./site-status";
@@ -114,6 +116,13 @@ function shortId(prefix: string): string {
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+async function loadSiteDomains(db: D1Database, siteId: string) {
+  const domains = await db.prepare(
+    "SELECT hostname, cf_route_id FROM domains WHERE site_id = ? ORDER BY is_primary DESC, id ASC",
+  ).bind(siteId).all<{ hostname: string; cf_route_id: string | null }>();
+  return domains.results;
 }
 
 function isHostnameShaped(host: string): boolean {
@@ -252,6 +261,11 @@ export async function createSiteHandler(
     return c.json({ error: `failed to create site: ${message}` }, 500);
   }
 
+  const execCtx = cacheExecutionCtx(c) as ExecutionContext | undefined;
+  await onPublicChange(c.env, execCtx, {
+    siteId, tags: [hostTag(domain)], reason: "site.create",
+  });
+
   // T38 [BCL-074]: provisioning runs ASYNCHRONOUSLY in the background so
   // this create request returns immediately instead of blocking on the
   // full 16-step build. We hand the driver to the request's
@@ -264,15 +278,6 @@ export async function createSiteHandler(
   // can be resumed from the UI (T39) or POST .../provision/next without
   // re-creating the site. The site row is already committed, so a
   // background hiccup never fails this request.
-  let execCtx: WaitUntilCtx | undefined;
-  try {
-    execCtx = c.executionCtx;
-  } catch {
-    // No ExecutionContext on this request (e.g. a direct unit-test
-    // invocation): scheduleBackgroundProvisioning falls back to an inline
-    // best-effort drive.
-    execCtx = undefined;
-  }
   await scheduleBackgroundProvisioning(execCtx, c.env, c.env.DB, siteId);
 
   return c.json(
@@ -358,12 +363,18 @@ export async function updateSiteHandler(
   const name = nextName.length > 0 ? nextName : existing.name;
   const status = nextStatus.length > 0 ? nextStatus : existing.status;
   const activity = nextActivity.length > 0 ? nextActivity : existing.activity;
+  const domains = await loadSiteDomains(c.env.DB, id);
 
   await c.env.DB.prepare(
     "UPDATE sites SET name = ?, status = ?, activity = ?, updated_at = unixepoch() WHERE id = ?",
   )
     .bind(name, status, activity, id)
     .run();
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: id,
+    tags: [siteTag(id), ...domains.map(({ hostname }) => hostTag(hostname))],
+    reason: "site.update",
+  });
 
   const row = await c.env.DB.prepare(
     "SELECT id, name, domain, vertical_slug, activity, status, settings_version, last_provisioned_at, created_at, updated_at FROM sites WHERE id = ? LIMIT 1",
@@ -409,21 +420,13 @@ export async function deleteSiteHandler(
     return c.json({ error: "Site not found" }, 404);
   }
 
-  // Resolve the primary domain + its attached CF route BEFORE the domains
-  // row is deleted. Fall back to sites.domain when no domains row exists.
-  const primaryDomain = await c.env.DB.prepare(
-    "SELECT hostname, cf_route_id FROM domains WHERE site_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1",
-  )
-    .bind(id)
-    .first<{ hostname: string; cf_route_id: string | null }>();
-  const hostname =
-    primaryDomain !== null && primaryDomain !== undefined
-      ? primaryDomain.hostname
-      : (site.domain ?? "");
-  const cfRouteId =
-    primaryDomain !== null && primaryDomain !== undefined
-      ? primaryDomain.cf_route_id
-      : null;
+  // Capture every hostname before the cascade. The primary still drives CF teardown.
+  const domains = await loadSiteDomains(c.env.DB, id);
+  if (!domains.length && site.domain) {
+    domains.push({ hostname: site.domain, cf_route_id: null });
+  }
+  const hostname = domains[0]?.hostname ?? "";
+  const cfRouteId = domains[0]?.cf_route_id ?? null;
 
   // (1) Cloudflare route/DNS teardown + cache purge (dry-run gated).
   let teardownStatus = "skipped";
@@ -488,6 +491,11 @@ export async function deleteSiteHandler(
     return c.json({ error: `failed to delete site: ${message}` }, 500);
   }
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: id,
+    tags: [siteTag(id), ...domains.map(({ hostname }) => hostTag(hostname))],
+    reason: "site.delete",
+  });
   return c.json({
     resource: {
       id,

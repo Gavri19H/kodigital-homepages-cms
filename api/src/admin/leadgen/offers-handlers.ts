@@ -29,6 +29,9 @@
 //     vertical/activity-carrying entities (fixed-literal reads).
 
 import type { Context } from "hono";
+import { leadgenPublicChange } from "../../edge/leadgen-change";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
+import { parseQuoteRoutingRule } from "../../public/leadgen/resolver";
 import {
   resolveAllowedOutboundSecretReference,
   type Env,
@@ -110,10 +113,50 @@ import type {
   LeadgenOfferRow,
   LeadgenOfferStatus,
   LeadgenPayloadSchemaSource,
+  LeadgenQuoteRoutingRuleRow,
 } from "./db-types";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 
 export type AdminContext = Context<{ Bindings: Env }>;
+
+// Capture affected variant IDs in the content transaction. Shell writers also
+// bump their KV key and ETag here, using UPDATE ... RETURNING id for the scope.
+export async function commitLeadgenContentChange(
+  c: AdminContext, writes: D1PreparedStatement[], variantScope: D1PreparedStatement, reason: string,
+): Promise<number> {
+  const [affected] = await c.env.DB.batch<{ id: number }>([variantScope, ...writes]);
+  const variantIds = (affected?.results ?? []).map(row => row.id);
+  if (variantIds.length) {
+    await leadgenPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, { variantIds, reason });
+  }
+  return Number(affected?.meta.changes ?? 0);
+}
+
+// Every bundle stores clickEvents. A valid funnel pixel already installs the
+// listener, so those consumers need the purge alone.
+export async function auctionClickScriptBump(
+  db: D1Database, changedAuctionsSql: string, ...bindings: unknown[]
+): Promise<D1PreparedStatement | null> {
+  // 0058 introduced offer tracking, 0064 the independent funnel pixel.
+  const schema = await db.prepare(`SELECT
+    EXISTS (SELECT 1 FROM pragma_table_info('leadgen_offers') WHERE name = 'clickout_meta_conversion') AS offers,
+    EXISTS (SELECT 1 FROM pragma_table_info('leadgen_funnels') WHERE name = 'meta_pixel_id') AS funnels`)
+    .first<{ offers: number; funnels: number }>();
+  if (!schema?.offers) return null;
+  // The admin stores a trimmed ID. Match funnelMetaPixelId's 5–20 digits,
+  // including its trim of older stored values.
+  const pixel = schema.funnels ? "trim(meta_pixel_id, ?)" : "NULL";
+  const bump = db.prepare(`WITH changed_auctions(id) AS (` + changedAuctionsSql + `),
+    active_funnels AS (SELECT id AS active_id, ` + pixel + ` AS pixel FROM leadgen_funnels WHERE status = 'active')
+    UPDATE leadgen_funnel_variants SET content_version = content_version + CASE
+      WHEN length(pixel) BETWEEN 5 AND 20 AND pixel NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END
+    FROM active_funnels WHERE funnel_id = active_id AND status = 'active'
+      AND auction_id IN (SELECT id FROM changed_auctions) RETURNING id`);
+  // SQLite trim defaults to one ASCII space. JS String.trim() also accepts
+  // these whitespace and line terminator characters on the serving path.
+  const whitespace = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
+  return schema.funnels ? bump.bind(...bindings, whitespace) : bump.bind(...bindings);
+}
 
 // 03 §8.4: paging shape identical to Listicles.
 export interface Paging {
@@ -1500,6 +1543,62 @@ function mergedField<K extends keyof LeadgenOfferRow>(
   return (updates.has(key) ? updates.get(key) : existing[key]) as LeadgenOfferRow[K];
 }
 
+async function commitOfferChange(
+  c: AdminContext, writes: D1PreparedStatement[], offer: LeadgenOfferRow, updates: Map<string, unknown>, reason: string,
+): Promise<void> {
+  const readsAndBumps: D1PreparedStatement[] = [];
+  const editsTracking = updates.has("status") || updates.has("clickout_meta_conversion") || updates.has("clickout_meta_dataset_id");
+  if (editsTracking && "clickout_meta_conversion" in offer) {
+    // Two offers can be archived concurrently. Test the offer and its peers
+    // inside the write transaction so the last one to disappear moves the key.
+    const bump = await auctionClickScriptBump(c.env.DB, `SELECT ao.auction_id
+      FROM leadgen_auction_offers ao JOIN leadgen_offers o ON o.id = ao.offer_id
+      WHERE ao.offer_id = ? AND ao.enabled = 1
+        AND (o.status = 'active' AND o.clickout_meta_conversion = 1 AND o.clickout_meta_dataset_id IS NOT NULL) !=
+            (COALESCE(?, o.status) = 'active' AND COALESCE(?, o.clickout_meta_conversion) = 1
+             AND COALESCE(?, o.clickout_meta_dataset_id IS NOT NULL))
+        AND NOT EXISTS (
+          SELECT 1 FROM leadgen_auction_offers other JOIN leadgen_offers peer ON peer.id = other.offer_id
+          WHERE other.auction_id = ao.auction_id AND other.offer_id != ao.offer_id AND other.enabled = 1
+            AND peer.status = 'active' AND peer.clickout_meta_conversion = 1 AND peer.clickout_meta_dataset_id IS NOT NULL
+        )`, offer.id, updates.get("status") ?? null, updates.get("clickout_meta_conversion") ?? null,
+      updates.has("clickout_meta_dataset_id") ? Number(updates.get("clickout_meta_dataset_id") != null) : null);
+    if (bump) readsAndBumps.push(bump);
+  }
+  const hasBump = readsAndBumps.length > 0;
+  const editsUrl = updates.has("banner_url_template");
+  if (editsUrl) {
+    // Capture both the prior URL and its active routing rules in the write
+    // transaction. Only entry rules put this offer in a gateway snapshot.
+    readsAndBumps.push(c.env.DB.prepare(`SELECT r.*, o.banner_url_template FROM leadgen_quote_routing_rules r
+      JOIN leadgen_offers o ON o.id = r.target_offer_id
+      WHERE o.id = ? AND r.status = 'active' ORDER BY r.quote_id`).bind(offer.id));
+  }
+  type RedirectRule = LeadgenQuoteRoutingRuleRow & { banner_url_template: string | null };
+  const committed = await c.env.DB.batch<{ id: number } | RedirectRule>([...readsAndBumps, ...writes]);
+  const variantIds = hasBump ? (committed[0]?.results ?? []).map(row => row.id) : [];
+  const rules = editsUrl ? (committed[readsAndBumps.length - 1]?.results ?? []).filter(row => "banner_url_template" in row) : [];
+  const quoteIds = new Set<number>();
+  // A usable URL is stored as /lg/lc/<public_id>. Changing between two usable
+  // URLs leaves the snapshot identical and the click route reads the new URL.
+  if (rules[0] && offerHasOwnClickUrl(rules[0].banner_url_template) !== offerHasOwnClickUrl(mergedField(offer, updates, "banner_url_template"))) {
+    for (const rule of rules) {
+      try {
+        if (!parseQuoteRoutingRule(rule).entry_only) continue;
+      } catch {
+        // A malformed legacy rule makes the snapshot builder fall back. Evict
+        // this quote's previous snapshot so the gateway makes the same choice.
+      }
+      quoteIds.add(rule.quote_id);
+    }
+  }
+  if (variantIds.length || quoteIds.size) {
+    await leadgenPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      ...(variantIds.length ? { variantIds } : {}), ...(quoteIds.size ? { quoteIds: [...quoteIds] } : {}), reason,
+    });
+  }
+}
+
 // 0068: every saved redirect rule that targets an Offer — Funnel eligibility
 // "Redirect to offer" rules (both timings, any status) and Quote routing rules'
 // redirect target. Names in id order (Funnel rules first), at most 3.
@@ -1935,7 +2034,7 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     }
   }
   try {
-    await c.env.DB.batch(statements);
+    await commitOfferChange(c, statements, existing, updates, "leadgen.offer.update");
   } catch (err) {
     // Safety net for the two placement uniques (validation catches the
     // in-set cases; this types any residual constraint race as a 400
@@ -1973,11 +2072,10 @@ export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
   // the full §7.4 inventory (explicit-query guard; D1 FKs are not enforced).
   const mode = c.req.query("mode") ?? "";
   if (mode !== "hard") {
-    await c.env.DB.prepare(
+    const archive = c.env.DB.prepare(
       "UPDATE leadgen_offers SET status = 'archived', updated_at = unixepoch() WHERE id = ?",
-    )
-      .bind(row.id)
-      .run();
+    ).bind(row.id);
+    await commitOfferChange(c, [archive], row, new Map([["status", "archived"]]), "leadgen.offer.archive");
     return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
   }
 

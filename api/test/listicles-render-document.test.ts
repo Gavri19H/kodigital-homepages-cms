@@ -104,7 +104,7 @@ describe("document assembly (§30.2 order + head composition)", () => {
   });
 
   it("the HostLogo is the site-settings logo (the ONLY per-host brand swap)", () => {
-    expect(html).toContain('src="/media/logo.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=466,fit=scale-down,quality=75,format=auto/media/logo.png"');
   });
 
   it("governed anchors carry minted /lc hrefs with full context", () => {
@@ -136,8 +136,8 @@ describe("document assembly (§30.2 order + head composition)", () => {
     expect(html).not.toContain("/api/track");
     expect(html).not.toContain("koTrack");
     // …and the homepage assets do not leak into the listicle page.
-    expect(html).not.toContain("/assets/public.js");
-    expect(html).not.toContain("/assets/public.css");
+    expect(html).not.toMatch(/\/assets\/public\.(?:[a-z0-9]+\.)?js/);
+    expect(html).not.toMatch(/\/assets\/public\.(?:[a-z0-9]+\.)?css/);
   });
 });
 

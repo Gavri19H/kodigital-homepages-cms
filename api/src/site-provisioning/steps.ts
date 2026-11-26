@@ -28,6 +28,9 @@
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
 
 import { type Env, parseNumber } from "../env";
+import { siteTagsForPublicRow } from "../admin/pages";
+import { onPublicChange } from "../edge/public-change";
+import { hostTag, siteTag } from "../edge/tags";
 import { renderLegalPagesForSite } from "./legal-renderer";
 import { warmHomepageInProcess } from "../cache/warm";
 import { DEFAULT_ROBOTS_TXT } from "../public/sitemap";
@@ -463,28 +466,38 @@ async function allocateVerticalCategoriesStep(
   const plan = VERTICAL_CATEGORY_PLAN[slug];
   if (plan && plan.length > 0) {
     const allocatedSlugs: string[] = [];
-    for (let i = 0; i < plan.length; i++) {
-      const cat = plan[i]!;
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
-            "VALUES (?, ?, ?)",
-        )
-        .bind(cat.slug, cat.name, i)
-        .run();
-      const row = await ctx.db
-        .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
-        .bind(cat.slug)
-        .first<{ id: number }>();
-      if (!row || typeof row.id !== "number") continue;
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO site_categories " +
-            "(site_id, category_id, display_order) VALUES (?, ?, ?)",
-        )
-        .bind(ctx.site_id, row.id, i)
-        .run();
-      allocatedSlugs.push(cat.slug);
+    const tags = await siteTagsForPublicRow(ctx.db, null);
+    let createdCategory = false;
+    try {
+      for (let i = 0; i < plan.length; i++) {
+        const cat = plan[i]!;
+        const insert = await ctx.db
+          .prepare(
+            "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
+              "VALUES (?, ?, ?)",
+          )
+          .bind(cat.slug, cat.name, i)
+          .run();
+        if (insert.meta.changes > 0) createdCategory = true;
+        const row = await ctx.db
+          .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
+          .bind(cat.slug)
+          .first<{ id: number }>();
+        if (!row || typeof row.id !== "number") continue;
+        await ctx.db
+          .prepare(
+            "INSERT OR IGNORE INTO site_categories " +
+              "(site_id, category_id, display_order) VALUES (?, ?, ?)",
+          )
+          .bind(ctx.site_id, row.id, i)
+          .run();
+        allocatedSlugs.push(cat.slug);
+      }
+    } finally {
+      // A later allocation can fail after a new global slug has become visible.
+      if (createdCategory) {
+        await onPublicChange(ctx.env, undefined, { siteId: null, tags, reason: "provision.categories.create" });
+      }
     }
     return {
       status: "completed",
@@ -2088,12 +2101,20 @@ async function updateLaunchReadinessStep(
   // would be rejected. Pure D1 write — runs in dry-run too, because the dry-
   // run gate only suppresses outbound Cloudflare/KV mutation, not the local
   // domain writes every other provisioning step also performs in dry-run.
+  const domains = await ctx.db.prepare(
+    "SELECT hostname FROM domains WHERE site_id = ? ORDER BY is_primary DESC, id ASC",
+  ).bind(ctx.site_id).all<{ hostname: string }>();
   await ctx.db
     .prepare(
       "UPDATE sites SET status = 'active', updated_at = unixepoch() WHERE id = ?",
     )
     .bind(ctx.site_id)
     .run();
+  await onPublicChange(ctx.env, undefined, {
+    siteId: ctx.site_id,
+    tags: [siteTag(ctx.site_id), ...domains.results.map(({ hostname }) => hostTag(hostname))],
+    reason: "site.provision",
+  });
   const output = JSON.stringify({
     step: "update_launch_readiness",
     kind: "launch_readiness_rollup",

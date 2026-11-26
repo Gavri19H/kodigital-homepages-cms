@@ -6,7 +6,7 @@
 //
 // Wire shapes (proposal.md §"ETag composition recipe" + §"Cache-Control
 // policy"):
-//   ETag             : strong sha256(site_id:path:content_version:tv) prefix
+//   ETag             : strong sha256(site_id:path:content_version:tv:settings_version) prefix
 //   Cache-Control    : public, max-age=300, stale-while-revalidate=86400
 //   304 Not Modified : empty body + ETag header echoed back to the caller
 //
@@ -16,6 +16,7 @@
 // CACHE_API_ENABLED) and serves the matching publicHtmlCacheHeaders().
 
 import { type Env, parseNumber } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import {
   computeEtag,
   getCachedHtml,
@@ -33,8 +34,7 @@ export interface ServePublicHtmlOptions {
   path: string;
   // Caller-supplied If-None-Match request header (or null when absent).
   ifNoneMatch: string | null | undefined;
-  // Render thunk: returns the full HTML body to cache and serve. Invoked
-  // ONLY on a cold cache (or when the cached body's ETag is missing).
+  // Render thunk: returns the full HTML body to cache and serve on a miss.
   render: () => string | Promise<string>;
   // Per-handler headers factory. Receives the computed ETag so each handler
   // can decide whether to forward it on Headers. The router supplies
@@ -49,15 +49,28 @@ export interface ServePublicHtmlOptions {
 // downstream client max-age stay aligned.
 const DEFAULT_HTML_CACHE_TTL_SECONDS = 300;
 
+export function cacheExecutionCtx(
+  c: { readonly executionCtx: WaitUntilContext },
+): WaitUntilContext | undefined {
+  try {
+    return c.executionCtx;
+  } catch {
+    // Hono's getter throws when app.request() has no execution context.
+    return undefined;
+  }
+}
+
 export async function servePublicHtml(
   env: Env,
   siteContext: PublicSiteContext,
   opts: ServePublicHtmlOptions,
+  waitUntil?: WaitUntilContext,
 ): Promise<Response> {
   const etag = await computeEtag({
     site_id: siteContext.siteId,
     path: opts.path,
     content_version: siteContext.content_version,
+    settings_version: siteContext.settings_version,
   });
 
   // RFC 7232 §3.2: respond 304 Not Modified when the request's
@@ -68,12 +81,10 @@ export async function servePublicHtml(
     return new Response(null, { status: 304, headers });
   }
 
-  // Warm-cache fast path: KV or caches.default. The cached body's stored
-  // ETag is preferred (it's the one that was on the wire when the body
-  // was written) but falls back to the just-computed etag if absent.
-  const cached = await getCachedHtml(env, opts.key);
+  // Prewarmed and older entries can carry an ETag without settings_version.
+  const cached = await getCachedHtml(env, opts.key, waitUntil);
   if (cached !== null) {
-    const headers = opts.headersFactory(cached.etag || etag);
+    const headers = opts.headersFactory(etag);
     return new Response(cached.body, { status: 200, headers });
   }
 
@@ -86,7 +97,7 @@ export async function servePublicHtml(
   await putCachedHtml(env, opts.key, body, {
     expirationTtl: ttl,
     etag,
-  });
+  }, waitUntil);
   const headers = opts.headersFactory(etag);
   return new Response(body, { status: 200, headers });
 }

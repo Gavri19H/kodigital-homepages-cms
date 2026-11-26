@@ -1,4 +1,6 @@
 import type { Env } from "../../env";
+import { onPublicChange } from "../../edge/public-change";
+import { listingTag, siteTag, slugTag } from "../../edge/tags";
 import { getImageModel, getTextModel } from "../models";
 import {
   createOpenAIClient,
@@ -43,8 +45,7 @@ import { resolveCategoryPreset } from "./preset-resolver";
 //   carries the same prompt either way so consumers can read it without
 //   branching on status).
 // - generateLogoImage / generateFeatureImage call client.generateImage(),
-//   upload the bytes to R2 under a DETERMINISTIC storage_key derived from
-//   (site_id, target_kind, target_id), insert a media row tagged with
+//   upload the bytes to a fresh R2 key for the target, insert a media row tagged with
 //   both site_id and ai_generation_id, and write the success row to
 //   ai_generations. When OPENAI_API_KEY is absent the image is not put to
 //   R2 and no media row is inserted — the function returns { status:
@@ -110,16 +111,15 @@ function meta(
 
 export function buildAiStorageKey(opts: {
   site_id: string;
-  // Round-4 P5c: 'persona' joins the two provisioning kinds — a per-(site,
-  // persona) deterministic key `ai/<site>/persona/<personaKey>.png`.
   target_kind: "logo" | "feature_image" | "persona";
   target_id?: string;
   ext?: string;
-}): string {
+}, revision: string | null = crypto.randomUUID()): string {
   const targetId = (opts.target_id ?? "default").replace(/[^A-Za-z0-9_-]+/g, "-");
   const safeSite = opts.site_id.replace(/[^A-Za-z0-9_-]+/g, "-");
   const ext = opts.ext ?? "png";
-  return `ai/${safeSite}/${opts.target_kind}/${targetId}.${ext}`;
+  const path = `ai/${safeSite}/${opts.target_kind}/${targetId}`;
+  return revision === null ? `${path}.${ext}` : `${path}/${revision}.${ext}`;
 }
 
 // T40 [BCL-077]: provisioning image generation is preset-governed. Each image
@@ -144,32 +144,32 @@ async function resolveImagePresetPrompt(
   return preset?.prompt ?? null;
 }
 
-function readMediaArtifactFromRow(
-  row: AiGenerationRow | null,
-): MediaArtifactRecord | null {
+async function readMediaArtifactFromRow(
+  env: Env, row: AiGenerationRow | null,
+): Promise<MediaArtifactRecord | null> {
   if (!row?.parsed_json) return null;
+  let parsed: Partial<MediaArtifactRecord> | null;
   try {
-    const parsed = JSON.parse(row.parsed_json) as {
-      media_id?: number;
-      storage_key?: string;
-      mime?: string;
-      size_bytes?: number;
-    };
-    if (
-      typeof parsed.media_id === "number" &&
-      typeof parsed.storage_key === "string"
-    ) {
-      return {
-        media_id: parsed.media_id,
-        storage_key: parsed.storage_key,
-        mime: parsed.mime ?? "image/png",
-        size_bytes: parsed.size_bytes ?? 0,
-      };
-    }
-    return null;
+    parsed = JSON.parse(row.parsed_json) as Partial<MediaArtifactRecord> | null;
   } catch {
     return null;
   }
+  if (typeof parsed?.media_id !== "number" || typeof parsed.storage_key !== "string") return null;
+  let storageKey = parsed.storage_key;
+  // Receipt redaction also matches ordinary slugs such as "risk-management".
+  // Recover the exact public address from its immutable media row on replay.
+  if (parsed.media_id > 0 && storageKey.includes("[REDACTED]")) {
+    const media = await env.DB.prepare("SELECT storage_key FROM media WHERE id = ? AND site_id = ?")
+      .bind(parsed.media_id, row.site_id).first<{ storage_key: string }>();
+    if (!media) return null;
+    storageKey = media.storage_key;
+  }
+  return {
+    media_id: parsed.media_id,
+    storage_key: storageKey,
+    mime: parsed.mime ?? "image/png",
+    size_bytes: parsed.size_bytes ?? 0,
+  };
 }
 
 // ============================================================
@@ -507,7 +507,7 @@ interface RunImageArgs {
   task: string;
   prompt_version: string;
   target_type: string | null;
-  target_id: string | null;
+  target_id: string;
   target_kind: "logo" | "feature_image" | "persona";
   site_id: string;
   size: string;
@@ -519,6 +519,32 @@ interface RunImageArgs {
   client?: OpenAIClient;
 }
 
+// Provisioning only fills empty slots. On regeneration, move a slot that
+// already uses this target's image while preserving any editorial replacement.
+// Keep prior media rows so their numeric /media/<id> URLs still serve those bytes.
+function imageReferenceUpdate(
+  args: RunImageArgs, mediaId: number, storageKey: string, legacyKey: string, revisionGlob: string,
+): D1PreparedStatement | undefined {
+  if (args.target_kind === "persona") return undefined; // The editor applies the returned URL on save.
+  // The preceding UPDATE in the same D1 batch changes one receipt if this
+  // version wins. A slower attempt must leave the published slot alone.
+  const previous = "WITH previous AS (SELECT id, storage_key FROM media " +
+    "WHERE changes() = 1 AND site_id = ? AND filename = ? AND (storage_key = ? OR storage_key GLOB ?) AND id < ?) ";
+  const scope = [args.site_id, args.filename, legacyKey, revisionGlob, mediaId];
+  if (args.target_kind === "logo" || args.target_id === "site-hero") {
+    const setting = args.target_kind === "logo" ? "logo_media_id" : "hero_image_media_id";
+    return args.env.DB.prepare(previous +
+      "UPDATE site_settings SET value = ? WHERE site_id = ? AND key = ? AND EXISTS (" +
+      "SELECT 1 FROM previous WHERE site_settings.value IN " +
+      "(storage_key, '/media/' || storage_key, CAST(id AS TEXT), '/media/' || id))",
+    ).bind(...scope, storageKey, args.site_id, setting);
+  }
+  return args.env.DB.prepare(previous +
+    "UPDATE articles SET featured_image_id = ?, updated_at = unixepoch() WHERE site_id = ? AND slug = ? " +
+    "AND featured_image_id IN (SELECT id FROM previous)",
+  ).bind(...scope, mediaId, args.site_id, args.target_id);
+}
+
 async function runImageGenerator(
   args: RunImageArgs,
 ): Promise<GenerateImageOutcome> {
@@ -526,32 +552,32 @@ async function runImageGenerator(
     args.site_id,
     args.task,
     args.prompt_version,
-    args.idempotency_suffix ?? args.target_id ?? "",
+    args.idempotency_suffix ?? args.target_id,
   );
 
-  // Storage key is deterministic — same site_id + target context always
-  // yields the same R2 key.
-  const storage_key = buildAiStorageKey({
+  const target = {
     site_id: args.site_id,
     target_kind: args.target_kind,
-    target_id: args.idempotency_suffix ?? args.target_id ?? undefined,
-  });
+    target_id: args.idempotency_suffix ?? args.target_id,
+  };
+  // Earlier receipts and no-image outcomes use the unversioned name.
+  const legacyKey = buildAiStorageKey(target, null);
 
   // Short-circuit on prior idempotent run (no re-upload, no duplicate INSERT INTO media).
   const existing = await getGenerationByIdempotencyKey(args.env, idempotency_key);
   if (existing) {
-    const artifact = readMediaArtifactFromRow(existing);
     if (
       existing.status === "success" ||
       existing.status === "fallback" ||
       existing.status === "skipped_no_api_key"
     ) {
+      const artifact = await readMediaArtifactFromRow(args.env, existing);
       return {
         ai_generation_id: existing.id,
         idempotency_key,
         status: existing.status,
         media_id: artifact?.media_id ?? 0,
-        storage_key: artifact?.storage_key ?? storage_key,
+        storage_key: artifact?.storage_key ?? legacyKey,
         prompt: args.prompt,
         replay: true,
       };
@@ -579,7 +605,7 @@ async function runImageGenerator(
   if (!client.hasApiKey()) {
     const payload = {
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       mime: "image/png",
       size_bytes: 0,
       meta: meta(
@@ -602,7 +628,7 @@ async function runImageGenerator(
       idempotency_key,
       status: "skipped_no_api_key",
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       prompt: args.prompt,
       replay: false,
     };
@@ -627,7 +653,7 @@ async function runImageGenerator(
       idempotency_key,
       status: "failed",
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       prompt: args.prompt,
       replay: false,
     };
@@ -636,7 +662,7 @@ async function runImageGenerator(
   if ("skipped_no_api_key" in imageResult && imageResult.skipped_no_api_key) {
     const payload = {
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       mime: "image/png",
       size_bytes: 0,
       meta: meta(
@@ -659,7 +685,7 @@ async function runImageGenerator(
       idempotency_key,
       status: "skipped_no_api_key",
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       prompt: args.prompt,
       replay: false,
     };
@@ -681,14 +707,16 @@ async function runImageGenerator(
       idempotency_key,
       status: "failed",
       media_id: 0,
-      storage_key,
+      storage_key: legacyKey,
       prompt: args.prompt,
       replay: false,
     };
   }
 
-  // env.MEDIA.put writes the deterministic storage_key in R2. The same
-  // (site_id, target_kind, target_id) input always overwrites the same key.
+  // A retry can share the same generation receipt. Give each actual PUT
+  // its own path and media row: /media/<key> and /media/<id> are both immutable.
+  const storage_key = buildAiStorageKey(target);
+  const revisionGlob = buildAiStorageKey(target, "*");
   await args.env.MEDIA.put(storage_key, imageResult.bytes, {
     httpMetadata: { contentType: imageResult.mime },
   });
@@ -698,19 +726,10 @@ async function runImageGenerator(
   // the typed receipts row.
   const mediaRow = await args.env.DB
     .prepare(
-      // rescue-4 round-4 (issue 1 regen): UPSERT on the deterministic storage_key.
-      // First generation plain-inserts; a REGENERATION at the same key (the prompt
-      // changed but the key is by site+kind+slug) reuses the existing media row -
-      // same id, so the article's featured_image_id stays valid - instead of
-      // hitting `UNIQUE constraint failed: media.storage_key`. site_id +
-      // storage_key are left out of the SET (they are the identity / conflict key).
       "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, site_id, ai_generation_id) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
-        "ON CONFLICT(storage_key) DO UPDATE SET " +
-        "filename = excluded.filename, mime_type = excluded.mime_type, " +
-        "size_bytes = excluded.size_bytes, alt_text = excluded.alt_text, " +
-        "folder = excluded.folder, ai_generation_id = excluded.ai_generation_id " +
-        "RETURNING id",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, EXISTS (" +
+        "SELECT 1 FROM media AS prior WHERE prior.site_id = media.site_id AND prior.filename = media.filename " +
+        "AND (prior.storage_key = ? OR prior.storage_key GLOB ?) AND prior.id < media.id) AS has_prior",
     )
     .bind(
       args.filename,
@@ -721,8 +740,10 @@ async function runImageGenerator(
       args.folder,
       args.site_id,
       ai_generation_id,
+      legacyKey,
+      revisionGlob,
     )
-    .first<{ id: number }>();
+    .first<{ id: number; has_prior: number }>();
 
   if (!mediaRow) {
     await finishGenerationLogFailure(args.env, {
@@ -747,20 +768,44 @@ async function runImageGenerator(
     size_bytes: imageResult.bytes.byteLength,
     meta: meta(args.task, imageResult.model, args.prompt_version, ai_generation_id, "success"),
   };
-  await finishGenerationLogSuccess(args.env, {
-    idempotency_key,
-    response_json: { model: imageResult.model, size: args.size },
-    parsed_json: redactSecretsFromPayload(payload as unknown),
-    target_type: args.target_type,
-    target_id: args.target_id,
-  });
+  const response = redactSecretsFromPayload({ model: imageResult.model, size: args.size });
+  // Concurrent attempts can share a receipt. Its media ID, like the selected
+  // slot's ID, can only advance to a newer immutable version.
+  const receipt = args.env.DB.prepare(
+    "UPDATE ai_generations SET status = 'success', response_json = ?, parsed_json = ?, " +
+    "target_type = ?, target_id = ?, error_message = NULL, updated_at = unixepoch() " +
+    "WHERE idempotency_key = ? AND COALESCE(CASE WHEN json_valid(parsed_json) " +
+    "THEN CAST(json_extract(parsed_json, '$.media_id') AS INTEGER) END, 0) <= json_extract(?2, '$.media_id')",
+  ).bind(JSON.stringify(response), JSON.stringify(redactSecretsFromPayload(payload)),
+    args.target_type, args.target_id, idempotency_key);
+  const reference = mediaRow.has_prior
+    ? imageReferenceUpdate(args, mediaRow.id, storage_key, legacyKey, revisionGlob)
+    : undefined;
+  // Commit a change to a published reference together with its receipt.
+  const [recorded, updated] = reference
+    ? await args.env.DB.batch([receipt, reference])
+    : [await receipt.run()];
+  if (updated && updated.meta.changes > 0) {
+    const tags = args.target_kind === "logo" || args.target_id === "site-hero"
+      ? [siteTag(args.site_id)]
+      : [slugTag(args.site_id, args.target_id), listingTag(args.site_id)];
+    await onPublicChange(args.env, undefined, { siteId: args.site_id, tags, reason: "ai.image.regenerate" });
+  }
 
+  let selected = { media_id: mediaRow.id, storage_key };
+  if (recorded?.meta?.changes === 0) {
+    // Another attempt finished first with a newer media ID. Callers that
+    // apply the result (including the logo editor) need the winning version.
+    const winningReceipt = await getGenerationByIdempotencyKey(args.env, idempotency_key);
+    const latest = await readMediaArtifactFromRow(args.env, winningReceipt);
+    if (!latest || latest.media_id < mediaRow.id) throw new Error("Image generation receipt was not saved");
+    selected = { media_id: latest.media_id, storage_key: latest.storage_key };
+  }
   return {
     ai_generation_id,
     idempotency_key,
     status: "success",
-    media_id: mediaRow.id,
-    storage_key,
+    ...selected,
     prompt: args.prompt,
     replay: false,
   };
@@ -772,7 +817,7 @@ async function runImageGenerator(
 //
 // A curated persona slot merged into a base scene prompt, generated through
 // the SAME OpenAI client + R2 storage idiom as generateFeatureImage
-// (deterministic per-(site,persona) key, media row, ai_generations receipt,
+// (per-write key, media row, ai_generations receipt,
 // idempotent re-gen, no-key skip). The author-time endpoint
 // (admin/leadgen/assets-handlers.ts) enforces the per-site monthly quota
 // BEFORE calling this. The LIVE render is a plain <img> — an ai_image is just
@@ -886,8 +931,7 @@ export async function generatePersonaImage(
       typeof input.alt_text === "string" && input.alt_text.trim() !== ""
         ? input.alt_text.trim()
         : `Persona image: ${label}`,
-    // Drives BOTH the idempotency key and the deterministic storage-key
-    // target_id → `ai/<site>/persona/<personaKey>.png`.
+    // The persona identifies the generation receipt and the R2 directory.
     idempotency_suffix: input.personaKey,
     client: input.client,
   });

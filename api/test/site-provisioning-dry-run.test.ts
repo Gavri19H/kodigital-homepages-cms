@@ -396,6 +396,9 @@ function installFakeCfClient(zoneId: string | null): CfCall[] {
         { status: 200, headers },
       );
     }
+    if (method === "GET" && (url.includes("/settings/") || url.endsWith("/argo/tiered_caching"))) {
+      return Response.json({ success: true, result: { value: url.endsWith("/min_tls_version") ? "1.2" : "on" } });
+    }
     return new Response(JSON.stringify({ success: false }), {
       status: 404,
       headers,
@@ -579,7 +582,7 @@ describe("route mutation guard matrix (T35)", () => {
     expect(parsed.cf_route_id).toBe("route-901");
     expect(parsed.zone_id).toBe("zone-42");
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(6);
     expect(calls[0]?.url).toContain("api.cloudflare.com");
     expect(calls[0]?.url).toContain("/zones?name=t35-site.example");
     expect(calls[1]?.url).toContain("/zones/zone-42/workers/routes");
@@ -590,6 +593,9 @@ describe("route mutation guard matrix (T35)", () => {
     };
     expect(routeBody.pattern).toBe("t35-site.example/*");
     expect(routeBody.script).toBe("kodigital-homepages-cms-worker");
+    expect(calls.slice(2)).toEqual([
+      "settings/always_use_https", "settings/min_tls_version", "settings/early_hints", "argo/tiered_caching",
+    ].map(path => ({ url: `https://api.cloudflare.com/client/v4/zones/zone-42/${path}`, method: "GET", body: null })));
 
     expect(domainUpdates).toHaveLength(1);
     expect(domainUpdates[0]?.cf_route_id).toBe("route-901");

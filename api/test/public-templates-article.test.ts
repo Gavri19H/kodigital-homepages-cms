@@ -284,6 +284,6 @@ describe("public-templates-article", () => {
     ]);
     // Design-system scaffold: Nunito font + the public stylesheet.
     expect(doc).toContain("Nunito");
-    expect(doc).toContain('href="/assets/public.css?v=');
+    expect(doc).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
   });
 });

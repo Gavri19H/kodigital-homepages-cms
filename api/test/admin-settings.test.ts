@@ -12,14 +12,17 @@
 //                       site B's id, so site B's settings rows cannot be
 //                       mutated by the round trip.
 
-import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import { describe, expect, it, vi } from "vitest";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import {
   SETTING_KEYS,
+  SETTINGS_SCRIPT,
   settingsPage,
   type SettingsValueMap,
 } from "../src/admin/templates/settings";
+import { miniDocument } from "./helpers/mini-dom";
 
 interface RecordedCall {
   sql: string;
@@ -322,6 +325,40 @@ describe("settings template (T32 settings port per-site)", () => {
       expect(html).toContain(`name="${key}"`);
       expect(html).toContain(`probe_${key}`);
     }
+  });
+
+  it("requests a cache clear for the selected site and reports success or failure", async () => {
+    const selected = { id: "site A&B", name: "Selected site" };
+    const document = miniDocument(settingsPage([...sites, selected], {}, selected.id));
+    const send = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ resource: { purge_id: "42", status: "completed" } }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockRejectedValueOnce(new Error("offline"));
+    runInNewContext(SETTINGS_SCRIPT, { document, fetch: send });
+    const button = document.getElementById("clear-site-cache")!;
+    const status = document.getElementById("clear-site-cache-status")!;
+    expect(button.textContent).toBe("Clear this site now");
+    expect(button.getAttribute("type")).toBe("button");
+    expect(status.getAttribute("role")).toBe("status");
+
+    button.click();
+    button.click();
+    expect(send).toHaveBeenCalledExactlyOnceWith("/api/admin/sites/site%20A%26B/purge-cache", {
+      method: "POST", credentials: "same-origin", redirect: "error",
+    });
+    await vi.waitFor(() => expect(status.textContent).toBe("Cache clear requested for this site."));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      button.click();
+      expect(button.disabled).toBe(true);
+      await vi.waitFor(() => expect(status.textContent).toBe("Could not request a cache clear. Please try again."));
+      expect(button.disabled).toBe(false);
+    }
+    const selector = document.getElementById("filter-site")!;
+    selector.value = "";
+    selector.fire("change");
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(send).toHaveBeenCalledTimes(3);
   });
 
   it("renders the ported card headings (Site Information / Site Logo / ads.txt / robots.txt / Custom HTML)", () => {

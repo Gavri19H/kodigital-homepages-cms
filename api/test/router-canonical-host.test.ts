@@ -99,11 +99,6 @@ function makeDb(
                 (p.site_id === siteId || p.site_id === null),
             ) ?? null) as unknown as T | null;
           }
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            return (categories.find((c) => c.slug === slug) ??
-              null) as unknown as T | null;
-          }
           // T2 (rescue-3): renderArticleHtml composes buildArticleViewModel,
           // whose article-detail query (bound siteId, slug) joins categories +
           // media. Serve the seeded article as the detail row so the live
@@ -140,6 +135,14 @@ function makeDb(
           return null;
         },
         async all<T = unknown>() {
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const category = categories.find((c) => c.slug === captured[1]);
+            const results = category ? [{
+              ...category, page_size: 20, article_slug: null, article_title: null,
+              published_at: null, image_url: null, image_alt: null,
+            }] : [];
+            return { results: results as T[], success: true, meta: {} };
+          }
           if (sql.startsWith("SELECT * FROM articles WHERE site_id = ?") ||
               sql.startsWith("SELECT * FROM articles WHERE status = ? AND site_id = ?") ||
               sql.includes("SELECT * FROM articles") && sql.includes("ORDER BY published_at")) {

@@ -5,8 +5,12 @@
 // listicle_section_offers usage index (§5.3) and archiving is the suggested
 // alternative.
 
+import { listicleBlocksToHtml } from "../../editor/listicle-blocks";
 import { mintPublicId } from "../../listicles/ids";
+import { invalidateOfferSections } from "../../listicles/invalidate";
 import { validateOffer, OFFER_STATUSES } from "../../listicles/validation";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
+import { collectOfferRefs } from "../../public/listicle/governed-url";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   type AdminContext,
@@ -79,6 +83,42 @@ async function offerSectionUsage(db: D1Database, offerId: number): Promise<Secti
     .bind(offerId)
     .all<SectionUsageRow>();
   return result.results ?? [];
+}
+
+// The public renderer resolves ids from the stored blocks themselves. Older
+// content can have a data-offer without a corresponding usage-index row.
+// Preselect scalar offer bindings and possible inline markup. HTML entities
+// can encode the link or id, so the public renderer makes the final match.
+async function invalidateRenderedOffer(c: AdminContext, offer: OfferRow, reason: string): Promise<void> {
+  const numericRef = String(offer.id);
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.headline_offer_id, s.headline_text, s.content_json
+     FROM listicle_sections s
+     WHERE s.id IN (
+       SELECT cand.section_id FROM listicle_page_section_candidates cand
+       JOIN listicle_pages p ON p.id = cand.page_id
+       JOIN listicle_article_versions ver ON ver.id = p.article_version_id
+       JOIN listicle_articles a ON a.id = ver.article_id
+       WHERE ver.status = 'active' AND a.status = 'published'
+     ) AND (s.headline_offer_id = ? OR EXISTS (
+       SELECT 1 FROM json_tree(CASE WHEN json_valid(s.content_json) THEN s.content_json END, '$.blocks') ref
+       WHERE (ref.key = 'offer_id' AND (ref.atom = ? OR instr(ref.atom, ?) > 0 OR instr(ref.atom, ?) > 0))
+          OR (ref.type = 'text' AND (instr(ref.atom, '<') > 0 OR instr(ref.atom, '&') > 0))
+     ))`,
+  ).bind(offer.id, offer.id, numericRef, offer.public_id)
+    .all<{ id: number; headline_offer_id: number | null; headline_text: string; content_json: string }>();
+
+  const sectionIds = rows.results.filter(section => {
+    if (section.headline_text !== "" && section.headline_offer_id === offer.id) return true;
+    try {
+      const refs = collectOfferRefs(listicleBlocksToHtml(section.content_json));
+      return refs.includes(numericRef) || refs.includes(offer.public_id);
+    } catch {
+      // A malformed legacy block tree cannot render an offer link.
+      return false;
+    }
+  }).map(section => section.id);
+  await invalidateOfferSections(c.env, sectionIds, reason, cacheExecutionCtx(c) as ExecutionContext | undefined);
 }
 
 // GET /api/admin/listicles/offers — list + filters + pager
@@ -182,6 +222,7 @@ export async function createOfferHandler(c: AdminContext): Promise<Response> {
     )
     .first<OfferRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
+  await invalidateRenderedOffer(c, row, "listicle.offer.create");
   return c.json({ offer: row }, 201);
 }
 
@@ -349,10 +390,13 @@ export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
     );
   }
 
+  let deleted: { id: number } | null;
   try {
     // Cap counters cascade via FK; anything else still referencing the row
     // (a race) fails the FK and lands in the catch below.
-    await c.env.DB.prepare("DELETE FROM listicle_offers WHERE id = ?").bind(offer.id).run();
+    deleted = await c.env.DB.prepare("DELETE FROM listicle_offers WHERE id = ? RETURNING id")
+      .bind(offer.id)
+      .first<{ id: number }>();
   } catch (err) {
     return c.json(
       {
@@ -363,6 +407,7 @@ export async function deleteOfferHandler(c: AdminContext): Promise<Response> {
       409,
     );
   }
+  if (deleted) await invalidateRenderedOffer(c, offer, "listicle.offer.delete");
   return c.json({ ok: true, id: offer.id, public_id: offer.public_id });
 }
 

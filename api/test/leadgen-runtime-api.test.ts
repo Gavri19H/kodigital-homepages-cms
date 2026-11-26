@@ -25,12 +25,14 @@ import app from "../src/index";
 // The versioned engine URL is derived, never re-typed: a LEADGEN_TEMPLATE_VERSION
 // bump (required whenever the engine bytes change) must not need a test edit.
 import { LEADGEN_TEMPLATE_VERSION } from "../src/cache/cache-keys";
+import { computeEtag } from "../src/cache/edge-cache";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId, isPublicId } from "../src/leadgen/ids";
 import { verifyConfigToken, type ConfigTokenTuple } from "../src/public/leadgen/attempt";
 import { assignVariant } from "../src/public/leadgen/ab-hash";
 import { sha256Hex } from "../src/public/leadgen/auction/parse";
+import { parseHtml } from "./helpers/mini-dom";
 
 // The v2 (R9, 05 §5.3) token tuple for a funnel with NO answer maps and NO
 // auction: session_id "" by default — the /lg/attempt route now MINTS + binds
@@ -509,8 +511,8 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     expect(html).not.toContain('data-lg-ready="1"');
   });
 
-  it("304 on a matching If-None-Match (no body)", async () => {
-    const { sdb, env } = newHarness();
+  it("returns 304 for the current shell ETag and fresh markup for the previous template's ETag", async () => {
+    const { sdb, env, store } = newHarness();
     await seedActivatedFunnel(env, sdb, { quoteName: "Life Quote", slug: "life" });
     const first = await get(env, "/lg/life");
     const etag = first.headers.get("ETag") ?? "";
@@ -518,6 +520,22 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     const conditional = await get(env, "/lg/life", { "If-None-Match": etag });
     expect(conditional.status).toBe(304);
     expect(await conditional.text()).toBe("");
+
+    const shellKey = [...store.keys()].find(key => key.startsWith("lg-shell:"));
+    expect(shellKey).toBeDefined();
+    const [, site, slug, funnel, variant, content, revision, template, activation] = shellKey!.split(":");
+    expect(template).toBe(String(LEADGEN_TEMPLATE_VERSION));
+    const material = {
+      site_id: site!,
+      path: `/lg/${slug}:${funnel}:${variant}:${revision}:${activation}`,
+      content_version: Number(content),
+    };
+    expect(etag).toBe(await computeEtag({ ...material, template_version: LEADGEN_TEMPLATE_VERSION }));
+    const previous = await computeEtag({ ...material, template_version: LEADGEN_TEMPLATE_VERSION - 1 });
+    const refreshed = await get(env, "/lg/life", { "If-None-Match": previous });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.headers.get("ETag")).toBe(etag);
+    expect(await refreshed.text()).toContain(`src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer`);
   });
 
   it("GET /lg serves the NULL-slug root activation", async () => {
@@ -1282,7 +1300,8 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     expect(inline).toEqual(overHttp);
 
     // §3.2c: the versioned hydration-engine tag (route lands in its own slice).
-    expect(html).toContain(`<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>`);
+    const runtime = parseHtml(html).querySelector(`head script[src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js"][defer][onerror]`);
+    expect(runtime?.textContent).toBe("");
     // the shell must NOT pre-set readiness — the ENGINE sets data-lg-ready="1".
     expect(html).not.toContain('data-lg-ready="1"');
     // the pre-hydration stub only QUEUES clicks (no fetch, no bootstrap).

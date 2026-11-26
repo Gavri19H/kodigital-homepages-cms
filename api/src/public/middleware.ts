@@ -1,8 +1,8 @@
 // Phase 3 / T26: Public Worker site-context middleware.
 //
 // Public requests arrive on tenant hostnames (e.g. mysite.com). This
-// middleware resolves the corresponding SiteContext via
-// (domains JOIN sites) and either:
+// middleware gets the SiteContext from the gateway's host snapshot on
+// inner page builds or from (domains JOIN sites), and either:
 //   - 404s the request when no site is registered for the hostname,
 //     including the admin host (defense-in-depth — the safety net in
 //     api/src/index.ts already 404s admin-host requests that reach the
@@ -29,8 +29,10 @@
 
 import type { Context, Next } from "hono";
 import type { Env } from "../env";
+import { normalizeHostname } from "../safety/protected-domains";
 import type { SiteContext } from "../site/site-context";
 import {
+  isAdminHost,
   resolveSiteContextFromRequest,
   resolveSiteStatusFromRequest,
 } from "../site/site-context";
@@ -48,11 +50,38 @@ export type PublicSiteVariables = {
   siteContext: PublicSiteContext;
 };
 
+function innerSiteContext(request: Request, env: Env): SiteContext | null {
+  if (env.EDGE_INNER !== "1") return null;
+  const header = request.headers.get("x-cms-site-context");
+  if (!header) return null;
+  try {
+    const hostname = normalizeHostname(new URL(request.url).hostname);
+    if (!hostname || isAdminHost(hostname, env)) return null;
+
+    const value: unknown = JSON.parse(header);
+    if (value === null || typeof value !== "object") return null;
+    const site = value as Record<string, unknown>;
+    if (site.hostname !== hostname || site.status !== "active"
+      || typeof site.site_id !== "string" || !site.site_id.trim()
+      || typeof site.vertical_slug !== "string" || !site.vertical_slug.trim()
+      || typeof site.content_version !== "number" || !Number.isFinite(site.content_version)
+      || typeof site.settings_version !== "number" || !Number.isFinite(site.settings_version)) return null;
+
+    return {
+      site_id: site.site_id, hostname, vertical_slug: site.vertical_slug, status: site.status,
+      content_version: site.content_version, settings_version: site.settings_version,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function publicSiteContextMiddleware(
   c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
   next: Next,
 ): Promise<Response | void> {
-  const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
+  const site = innerSiteContext(c.req.raw, c.env)
+    ?? await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
   if (site === null) {
     // T36 (status semantics): a site that was provisioned and is now
     // intentionally retired (sites.status = 'disabled') returns 410 Gone —

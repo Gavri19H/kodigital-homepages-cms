@@ -40,6 +40,8 @@ import { isSendOnlyOffer, sendOnlyReasonLabel } from "../../leadgen/send-only";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
+  auctionClickScriptBump,
+  commitLeadgenContentChange,
   buildPaging,
   escapeLike,
   idSelector,
@@ -630,13 +632,14 @@ export async function patchAuctionHandler(c: AdminContext): Promise<Response> {
     return c.json({ error: "Validation failed", fields: { backfill_source_offer_id: `offer ${value.backfill_source_offer_id} does not exist` } }, 400);
   }
 
-  await c.env.DB.prepare(
+  const bindingVersion = body["carrier_normalization_version"] === undefined ? null : value.carrier_normalization_version;
+  const update = c.env.DB.prepare(
     `UPDATE leadgen_auctions SET
        auction_name = ?, quote_id = ?, funnel_id = ?, funnel_variant_id = ?, auction_type = ?, banner_design_id = ?,
        winner_logic = ?, floor_type = ?, floor_value = ?, mixed_payout_warn = ?, multi_offer = ?, surface_static_bid_offers = ?,
        banner_slots_count = ?, max_carriers_per_offer = ?, max_total_carriers = ?, render_mode = ?, backfill = ?,
        backfill_source_offer_id = ?, backfill_trigger = ?, remove_clicked_offers = ?, removal_scope = ?, timeout_ms = ?,
-       carrier_normalization_version = ?, banner_config_json = ?, status = ?, updated_at = unixepoch()
+       carrier_normalization_version = COALESCE(?, carrier_normalization_version), banner_config_json = ?, status = ?, updated_at = unixepoch()
      WHERE id = ?`,
   )
     .bind(
@@ -644,9 +647,19 @@ export async function patchAuctionHandler(c: AdminContext): Promise<Response> {
       value.winner_logic, value.floor_type, value.floor_value, value.mixed_payout_warn, value.multi_offer, value.surface_static_bid_offers,
       value.banner_slots_count, value.max_carriers_per_offer, value.max_total_carriers, value.render_mode, value.backfill,
       value.backfill_source_offer_id, value.backfill_trigger, value.remove_clicked_offers, value.removal_scope, value.timeout_ms,
-      value.carrier_normalization_version, value.banner_config_json, value.status, row.id,
-    )
-    .run();
+      bindingVersion, value.banner_config_json, value.status, row.id,
+    );
+  if (bindingVersion === null) {
+    await update.run();
+  } else {
+    // The attempt binds the auction selected by the variant. An auction's own
+    // attribution fields can name a different quote. Compare at commit time.
+    const consumers = c.env.DB.prepare(`SELECT v.id FROM leadgen_auctions a
+      JOIN leadgen_funnel_variants v ON v.auction_id = a.id AND v.status = 'active'
+      JOIN leadgen_funnels f ON f.id = v.funnel_id AND f.status = 'active'
+      WHERE a.id = ? AND a.carrier_normalization_version != ?`).bind(row.id, bindingVersion);
+    await commitLeadgenContentChange(c, [update], consumers, "leadgen.auction.update");
+  }
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_auctions WHERE id = ? LIMIT 1").bind(row.id).first<LeadgenAuctionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
@@ -1070,7 +1083,20 @@ export async function putAuctionOffersHandler(c: AdminContext): Promise<Response
       ).bind(auction.id, p.offer_placement_id, p.offer_id, p.static_order, p.static_bid_override, p.enabled),
     );
   }
-  await c.env.DB.batch(statements);
+  // Compare membership in the replace transaction. Bids, ordering and
+  // replacing one tracking offer with another leave the cached script intact.
+  const enabledOffers = parsed.filter(p => p.enabled).map(p => p.offer_id);
+  const bump = await auctionClickScriptBump(c.env.DB, `WITH tracking_offers AS (
+      SELECT id FROM leadgen_offers
+      WHERE status = 'active' AND clickout_meta_conversion = 1 AND clickout_meta_dataset_id IS NOT NULL
+    )
+    SELECT ?1 WHERE EXISTS (
+      SELECT 1 FROM leadgen_auction_offers ao JOIN tracking_offers o ON o.id = ao.offer_id
+      WHERE ao.auction_id = ?1 AND ao.enabled = 1
+    ) != EXISTS (SELECT 1 FROM tracking_offers WHERE id IN (SELECT value FROM json_each(?2)))`,
+    auction.id, JSON.stringify(enabledOffers));
+  if (bump) await commitLeadgenContentChange(c, statements, bump, "leadgen.auction.offers");
+  else await c.env.DB.batch(statements);
 
   // 05 §5.1 site 2 (R4): per-offer eligibility WARNINGS on the saved set —
   // the save is ACCEPTED (draft auctions may reference not-yet-ready Offers);

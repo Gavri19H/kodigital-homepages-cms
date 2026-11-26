@@ -19,8 +19,7 @@ import {
 //   returns { status: 'skipped_no_api_key', media_id: <placeholder> }.
 // - GIVEN generateFeatureImage succeeds WHEN the media row is inserted
 //   THEN the row contains both site_id and ai_generation_id.
-// - GIVEN generateLogoImage runs THEN the storage_key written to R2 is
-//   deterministic given the same site_id + generation context.
+// - Replaying a receipt reuses its key. Generating new bytes creates a new version.
 
 interface CapturedCall {
   sql: string;
@@ -80,20 +79,7 @@ function makeFakeDb() {
             string | null,
             string | null,
           ];
-          // Faithful to the real schema: media.storage_key is UNIQUE. A plain
-          // INSERT on an existing key throws (the round-4 regen bug); the
-          // ON CONFLICT(storage_key) DO UPDATE form UPSERTs the existing row.
-          const dup = media.find((m) => m.storage_key === storage_key);
-          if (dup) {
-            if (sql.includes("ON CONFLICT(storage_key) DO UPDATE")) {
-              dup.filename = filename;
-              dup.mime_type = mime_type;
-              dup.size_bytes = size_bytes;
-              dup.alt_text = alt_text;
-              dup.folder = folder;
-              dup.ai_generation_id = ai_generation_id;
-              return { id: dup.id } as unknown as T;
-            }
+          if (media.some((m) => m.storage_key === storage_key)) {
             throw new Error("UNIQUE constraint failed: media.storage_key");
           }
           const id = nextMediaId++;
@@ -398,9 +384,9 @@ describe("T8 image generators — success path inserts media row with site_id + 
   });
 });
 
-describe("T8 regen UPSERT (round-4 issue 1)", () => {
-  it("generateFeatureImage: REGENERATING at the same storage_key UPSERTs the media row (same id, no UNIQUE error)", async () => {
-    const { env, ai, media } = makeEnv({ apiKey: "sk-livefakekey-regen" });
+describe("T8 image regeneration", () => {
+  it("keeps the original media address valid and records the replacement for replay", async () => {
+    const { env, ai, media, r2 } = makeEnv({ apiKey: "sk-livefakekey-regen" });
     const client = imageSuccessClient("regen-1");
     const input = {
       site_id: "site-regen",
@@ -417,18 +403,23 @@ describe("T8 regen UPSERT (round-4 issue 1)", () => {
     // the path that hit `UNIQUE constraint failed: media.storage_key`.
     const aiRow = ai.get(first.idempotency_key);
     if (aiRow) aiRow.status = "pending";
-    const second = await generateFeatureImage(env, input);
-    // UPSERT: succeeds, reuses the SAME media row (so the article's
-    // featured_image_id stays valid) — no duplicate, no UNIQUE throw.
+    const second = await generateFeatureImage(env, { ...input, client: imageSuccessClient("regen-2") });
     expect(second.status).toBe("success");
-    expect(media.length).toBe(1);
-    expect(second.media_id).toBe(first.media_id);
-    expect(second.storage_key).toBe(first.storage_key);
+    expect(media).toHaveLength(2);
+    expect(second.media_id).not.toBe(first.media_id);
+    expect(second.storage_key).not.toBe(first.storage_key);
+    expect(media.map(row => [row.id, row.storage_key])).toEqual([
+      [first.media_id, first.storage_key], [second.media_id, second.storage_key],
+    ]);
+    expect(r2.get(first.storage_key)?.body).toEqual(pngBytes("regen-1"));
+    expect(r2.get(second.storage_key)?.body).toEqual(pngBytes("regen-2"));
+    const replay = await generateFeatureImage(env, input);
+    expect(replay).toMatchObject({ media_id: second.media_id, storage_key: second.storage_key, replay: true });
   });
 });
 
-describe("T8 deterministic storage_key", () => {
-  it("buildAiStorageKey: same site_id + target_kind + target_id => same R2 key", () => {
+describe("T8 storage keys and no-image placeholders", () => {
+  it("buildAiStorageKey gives the same site and target a fresh version for each write", () => {
     const a = buildAiStorageKey({
       site_id: "site-x",
       target_kind: "logo",
@@ -444,12 +435,14 @@ describe("T8 deterministic storage_key", () => {
       target_kind: "logo",
       target_id: "default",
     });
-    expect(a).toBe(b);
+    expect(a).not.toBe(b);
     expect(a).not.toBe(c);
-    expect(a).toMatch(/^ai\/site-x\/logo\//);
+    expect(a).toMatch(/^ai\/site-x\/logo\/default\/[\da-f-]{36}\.png$/);
+    expect(b).toMatch(/^ai\/site-x\/logo\/default\/[\da-f-]{36}\.png$/);
+    expect(c).toMatch(/^ai\/site-y\/logo\/default\/[\da-f-]{36}\.png$/);
   });
 
-  it("generateLogoImage produces a deterministic storage_key for the same site_id + context", async () => {
+  it("generateLogoImage produces a deterministic placeholder when the API key is absent", async () => {
     const a = await generateLogoImage(makeEnv().env, {
       site_id: "site-det",
       vertical: "cycling",

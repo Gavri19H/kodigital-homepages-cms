@@ -21,20 +21,22 @@
 // SiteContext.hostname — the admin host MUST NEVER appear as a canonical.
 
 import { Hono, type Context } from "hono";
+import { decodeBase64 } from "hono/utils/encode";
 import type { Env } from "../env";
 import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
-import { publicCss } from "./assets/public-css";
-import { publicJs } from "./assets/public-js";
+import { minifiedPublicCss, minifiedPublicJs } from "./assets/public-assets.generated";
+import { PUBLIC_FONT_FILES } from "./assets/public-fonts.generated";
+import { currentPublicAssetPath } from "./templates/layout";
 import {
   renderRssFeed,
   renderAtomFeed,
   type FeedSiteInfo,
 } from "./feeds";
 import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
-import { buildArticleViewModel } from "./view-models/article";
+import { buildArticleViewModel, loadArticleRenderData } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
-import { isDatacenterAsn, isDeclaredBotUA } from "../safety/ivt";
+import { requestIsBot } from "../edge/bot";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -43,16 +45,16 @@ import {
 } from "./middleware";
 import {
   fetchPublishedPage,
-  fetchCategory,
-  fetchCategoryArticles,
-  fetchTag,
-  fetchTagArticles,
+  fetchBareSlugCandidates,
+  fetchListing,
+  fetchRobotsSettings,
   fetchSitemapPages,
   fetchSiteSetting,
-  resolvePageSize,
   checkRedirect,
   fetchPublicLayoutSiteInfo,
+  type PublicPageRow,
 } from "./queries";
+import { loadRenderContext, type RenderContext } from "./render-context";
 import {
   htmlKey,
   articleKey,
@@ -76,7 +78,7 @@ import {
 } from "../cache/edge-cache";
 import { cacheGet, cacheSet } from "../cache";
 import { parseNumber } from "../env";
-import { servePublicHtml } from "./html-pipeline";
+import { cacheExecutionCtx, servePublicHtml } from "./html-pipeline";
 import {
   renderHomepageHtml,
   renderArticleHtml,
@@ -86,6 +88,7 @@ import {
 } from "./render-pages";
 import { renderErrorPage, type ErrorPageOptions } from "./render-error";
 import {
+  loadSelectedListicle,
   tryServePublishedListicle,
   serveListicleCandidate,
 } from "./listicle/serve";
@@ -98,7 +101,8 @@ import {
   renderHomeWebsiteJsonLd,
   renderCategoryJsonLd,
 } from "./templates/jsonld-home-category-page";
-import { siteIconHref, siteBadgeIconSvg, siteBrandColor, SITE_ICON_SVG_PATH } from "./site-brand";
+import { siteBadgeIconSvg, siteBrandColor, SITE_ICON_SVG_PATH } from "./site-brand";
+import serveMedia from "../media/serve";
 import { resolveSiteContextFromRequest } from "../site/site-context";
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
@@ -168,64 +172,72 @@ const ERROR_PAGE_BRAND_TIMEOUT_MS = 1500;
 // hono 4.x), so this is the live mechanism for the deployed worker too.
 router.onError((_err, c) => publicErrorResponse(c, 500));
 
-// T20 (rescue-3): /favicon.ico is answered explicitly so a browser's
-// automatic favicon request never falls through to the /:slug
-// compatibility catch-all, which would emit an unhandled 404 (the
-// "missing favicon" consistency item in the brief). No per-tenant icon
-// asset is bundled, so the route returns 204 No Content — a valid
-// "no favicon configured" response (never a 404/500). It is registered
-// BEFORE publicSiteContextMiddleware so it stays host-independent and
-// needs no tenant DB lookup: a favicon is a generic asset request, not
-// site-scoped content.
-// X14 v2 (owner, 22 Nov 2026): /favicon.ico now points browsers and bookmark
-// tools at the site's tab icon (its "Tab icon" resized to 32 px, else the
-// /site-icon.svg badge). It still runs BEFORE the site middleware and stays
-// fail-open: an unknown host or any read error answers the old 204.
+// PublicPage caches the selected tab icon under the tenant's site tag.
+// A host that cannot be resolved keeps the original empty favicon response.
 router.get("/favicon.ico", async (c) => {
-  try {
-    const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
-    if (site !== null) {
-      const info = await fetchPublicLayoutSiteInfo(c.env.DB, { siteId: site.site_id, hostname: site.hostname });
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: siteIconHref(info.faviconUrl ?? null, 32),
-          "Cache-Control": "public, max-age=3600",
-        },
-      });
-    }
-  } catch {
-    /* fail-open: fall through to the "no favicon" answer */
+  const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env).catch(() => null);
+  if (!site) {
+    return new Response(null, { status: 204, headers: { "Cache-Control": "public, max-age=86400" } });
   }
-  return new Response(null, {
-    status: 204,
-    headers: { "Cache-Control": "public, max-age=86400" },
+  const info = await fetchPublicLayoutSiteInfo(c.env.DB, {
+    siteId: site.site_id, hostname: site.hostname,
+  }).catch(() => null);
+  let cacheControl = info ? "public, max-age=3600" : "no-store";
+  if (info?.faviconUrl) {
+    // Use the local media route so legacy numeric IDs and storage keys resolve
+    // exactly as they do for the tab icon linked in the page head.
+    const icon = await serveMedia.request(info.faviconUrl, undefined, c.env);
+    if (icon.ok && icon.headers.get("Content-Type")?.toLowerCase().startsWith("image/")) {
+      icon.headers.set("Cache-Control", cacheControl);
+      return icon;
+    }
+    if (icon.status >= 500) cacheControl = "no-store";
+  }
+  const badge = siteBadgeIconSvg({
+    brandColor: siteBrandColor(info?.brandTokens), name: info?.name, tagline: info?.tagline,
+  });
+  return new Response(badge, {
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": cacheControl,
+      "X-Content-Type-Options": "nosniff",
+    },
   });
 });
 
-// rescue-4 — the public design assets the layout links: /assets/public.css
-// (the theiwise design system — --tw-brand:#1ba8c8, the 13/12 section styling,
-// Nunito, the 8 responsive breakpoints) and /assets/public.js. WITHOUT these
-// routes the layout's <link rel="stylesheet" href="/assets/public.css"> 404s
-// and EVERY public page renders completely UNSTYLED (raw HTML). Registered
-// BEFORE publicSiteContextMiddleware so they are host-independent generic
-// assets (no tenant DB lookup), exactly like /favicon.ico above.
-router.get("/assets/public.css", () =>
-  new Response(publicCss, {
+// Keep the legacy routes for cached HTML. In the shared runtime namespace a
+// cold Worker may only serve the exact content hash it was built with.
+router.on("GET", ["/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", "/lg/runtime/assets/:file"], (c) => {
+  const path = c.req.path;
+  const current = currentPublicAssetPath(new URL(c.req.url));
+  if (path.startsWith("/lg/runtime/") && !current) {
+    return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
+  const css = path.endsWith(".css");
+  const hashed = path !== (css ? "/assets/public.css" : "/assets/public.js");
+  const immutable = hashed || current !== null;
+  return new Response(css ? minifiedPublicCss : minifiedPublicJs, {
     headers: {
-      "Content-Type": "text/css; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
+      "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
+      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",
     },
-  }),
-);
-router.get("/assets/public.js", () =>
-  new Response(publicJs, {
+  });
+});
+
+router.on("GET", ["/assets/fonts/:file", "/lg/runtime/fonts/:file"], (c) => {
+  const path = c.req.path.replace(/^\/assets\/fonts\//, "/lg/runtime/fonts/");
+  const base64 = PUBLIC_FONT_FILES.get(path);
+  if (base64 === undefined) {
+    if (path === c.req.path) c.header("Cache-Control", "no-store");
+    return c.notFound();
+  }
+  return new Response(decodeBase64(base64), {
     headers: {
-      "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "font/woff2",
+      "Cache-Control": "public, max-age=31536000, immutable",
     },
-  }),
-);
+  });
+});
 
 // Listicles Phase 7 (§7.2/§7.3): GET /lc/:oid — the first-party click
 // resolver. Registered BEFORE publicSiteContextMiddleware (host-independent,
@@ -256,66 +268,17 @@ router.route("/", listiclePostbackRouter);
 // proceed with c.get("siteContext") populated for downstream handlers (T27).
 router.use("*", publicSiteContextMiddleware);
 
-// rescue-6 (agent-readiness M3 / ad IVT defense): decide whether THIS request is
-// automated, from Cloudflare's edge bot signals (request.cf). Ad-bearing pages
-// (home / article / category) suppress ad tags for bots so non-human traffic
-// never triggers ad impressions — invalid traffic is an AdSense / Ad Manager
-// policy + revenue-clawback risk. VERIFIED SEARCH engines (Googlebot etc.) are
-// deliberately NOT treated as bots: they get the SAME cached page as humans (ad
-// networks filter crawler traffic on their side, and serving a search engine a
-// different page than users risks cloaking). We suppress only AI crawlers
-// (verifiedBotCategory) and unverified low-score automation (paid Bot Mgmt).
-export function botFromCfSignals(
-  cf:
-    | {
-        verifiedBot?: boolean;
-        verifiedBotCategory?: string;
-        botManagement?: { score?: number };
-        asn?: number;
-      }
-    | undefined,
-  userAgent?: string | null,
-): boolean {
-  if (cf === undefined) return false;
-  if (cf.verifiedBot === true) {
-    const cat = cf.verifiedBotCategory;
-    // Among Cloudflare's verified-bot categories only the AI-crawler class is
-    // suppressed; "Search Engine Crawler" and the rest get the human page.
-    // (A verified good bot is NEVER subjected to the IVT signals below — e.g. a
-    // verified Googlebot legitimately living in a datacenter ASN must not be
-    // treated as invalid traffic.)
-    return typeof cat === "string" && cat.toLowerCase().includes("ai");
-  }
-  // NOT a verified good bot -> apply the free open-source IVT signals (Layer 1).
-  const score = cf.botManagement?.score;
-  // Cloudflare bot score is 1 (definitely bot) .. 99 (human); < 30 = likely
-  // automation. Only present with the paid Bot Management add-on (else 0/undef).
-  if (typeof score === "number" && score > 0 && score < 30) return true;
-  // Datacenter / hosting ASN (cf.asn is free on every plan): ads to cloud/colo
-  // IPs are classic GIVT.
-  if (isDatacenterAsn(cf.asn)) return true;
-  // Self-declaring bot / non-browser HTTP client by user-agent.
-  if (isDeclaredBotUA(userAgent)) return true;
-  return false;
-}
+export { botFromCfSignals } from "../edge/bot";
 
 function isBotRequest(
   c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
 ): boolean {
-  const cf = (c.req.raw as unknown as {
-    cf?: {
-      verifiedBot?: boolean;
-      verifiedBotCategory?: string;
-      botManagement?: { score?: number };
-      asn?: number;
-    };
-  }).cf;
-  return botFromCfSignals(cf, c.req.header("user-agent"));
+  const variant = c.req.header("x-cms-variant");
+  return variant === undefined ? requestIsBot(c.req.raw) : variant === "bot";
 }
 
-// No-store HTML headers for the ad-free bot variant: a CDN/proxy must NEVER
-// cache it and later serve it to a human (that would silently drop ads). No
-// X-Robots-Tag — crawlers should still index the content; only the ads differ.
+// Live bot renders stay private. PublicPage applies its cache policy to the
+// ad-free copy under the gateway's bot variant key.
 function botHtmlHeaders(): Headers {
   const h = new Headers();
   h.set("Content-Type", "text/html; charset=utf-8");
@@ -326,8 +289,7 @@ function botHtmlHeaders(): Headers {
 
 // rescue-7: US-privacy opt-out (CCPA/GPP) is now owned by the CMP — its GPP/USP
 // signal is read by GPT and the whole bidstream — so the server no longer reads a
-// custom opt-out cookie or emits Restrict-Data-Processing. Only the bot variant
-// below still renders fresh + no-store (ad-free for invalid traffic).
+// custom opt-out cookie or emits Restrict-Data-Processing.
 // rescue-6 (agent-readiness M2/M5): does THIS client prefer markdown? True only
 // when the Accept header explicitly lists text/markdown AND ranks it >= text/html
 // (so a normal browser, which never sends text/markdown, always gets HTML). The
@@ -387,7 +349,10 @@ router.get("/", async (c) => {
     const body = await renderHomepageHtml(c.env.DB, siteContext, {
       isBot,
     });
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
@@ -395,23 +360,23 @@ router.get("/", async (c) => {
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () => renderHomepageHtml(c.env.DB, siteContext),
-  });
+  }, cacheExecutionCtx(c));
 });
 
-// T2 (rescue-3): the GET /article/:slug handler passes c.env.DB into
-// renderArticleHtml so the design article shell (buildArticleViewModel +
-// renderArticle + renderLayout) is composed through the LIVE route — the
-// renderer is db-fed, not orphaned. getArticleBySlug stays as the cheap 404
-// gate (so an unknown/draft slug never enters the cache pipeline); the
-// db-fed render then runs only on a cold cache.
+// PublicPage calls this route on a cache miss. Its tenant-scoped detail read
+// checks publication in the same round as related articles and layout settings.
 router.get("/article/:slug", async (c) => {
   const slug = c.req.param("slug");
   const siteContext = c.get("siteContext");
-  const row = await getArticleBySlug(c.env.DB, slug, {
-    siteId: siteContext.siteId,
-  });
-  if (!row || row.status !== "published") {
-    return publicErrorResponse(c, 404);
+  const data = c.env.EDGE_INNER === "1"
+    ? await loadArticleRenderData(c.env.DB, { slug, siteContext }).catch(() => undefined)
+    : undefined;
+  if (data === undefined) {
+    // Legacy cache hits, 304s and failed preloads use the original publication gate.
+    const row = await getArticleBySlug(c.env.DB, slug, { siteId: siteContext.siteId });
+    if (row?.status !== "published") return publicErrorResponse(c, 404);
+  } else if (data.vm === null) {
+    return notFoundWithLayout(c, data.context.catch(() => undefined));
   }
   const path = `/article/${slug}`;
   // rescue-6: serve clean markdown to agents that ask for it. Rendered fresh
@@ -419,13 +384,7 @@ router.get("/article/:slug", async (c) => {
   // markdown variant can never serve to a browser, and the HTML cache hit-rate
   // is untouched.
   if (acceptPrefersMarkdown(c.req.header("accept"))) {
-    const mdVm = await buildArticleViewModel(c.env.DB, {
-      slug,
-      siteContext: {
-        siteId: siteContext.siteId,
-        hostname: siteContext.hostname,
-      },
-    });
+    const mdVm = data?.vm ?? await buildArticleViewModel(c.env.DB, { slug, siteContext });
     if (mdVm === null) return publicErrorResponse(c, 404);
     const md = renderArticleMarkdown({
       title: mdVm.article.title,
@@ -445,17 +404,20 @@ router.get("/article/:slug", async (c) => {
   const isBot = isBotRequest(c);
   if (isBot) {
     const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
-      isBot,
+      isBot, data,
     });
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: articleKey(siteContext.siteId, slug, siteContext.content_version),
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderArticleHtml(c.env.DB, siteContext, slug),
-  });
+    render: () => renderArticleHtml(c.env.DB, siteContext, slug, { data }),
+  }, cacheExecutionCtx(c));
 });
 
 router.get("/category/:slug", (c) => handleCategory(c, 1));
@@ -493,32 +455,42 @@ type CategoryCtx = Context<{
   Variables: PublicSiteVariables;
 }>;
 
-// T4 (rescue-3): the render thunk passes c.env.DB into renderCategoryHtml so
-// the category listing is composed through the design layout
-// (fetchPublicLayoutSiteInfo + renderCard + renderLayout) via the LIVE route —
-// the renderer is db-fed, not orphaned. rescue-2 served a bare zero-style
-// `<h1>` + flat `<a>` list (BCL-019: live /category/<slug> = 1,279 bytes, 0
-// <style>) because the route called renderCategoryHtml without the DB handle,
-// so the page rendered with no design shell, no /assets/public.css, no
-// header/footer regions and no styled article cards.
+// On a miss, the same settings can brand a content page or its 404. Keep the
+// existing error page's bounded wait and hostname fallback on slow/failed D1.
+async function notFoundWithLayout(c: CategoryCtx, layout?: Promise<RenderContext | undefined>) {
+  if (!layout) return publicErrorResponse(c, 404);
+  const context = await Promise.race([
+    layout,
+    new Promise<undefined>((resolve) => setTimeout(resolve, ERROR_PAGE_BRAND_TIMEOUT_MS)),
+  ]);
+  const site = context?.site;
+  return c.html(renderErrorPage({
+    status: 404, hostname: c.get("siteContext").hostname, siteName: site?.name, brand: site,
+  }), 404);
+}
+
+function preloadLayout(c: CategoryCtx) {
+  // Legacy KV hits and 304s need no layout. On an inner miss a failed
+  // speculative read can be retried by the renderer that actually wins.
+  if (c.env.EDGE_INNER !== "1") return undefined;
+  return loadRenderContext(c.env.DB, c.get("siteContext")).catch(() => undefined);
+}
+
+async function listingData(c: CategoryCtx, kind: "category" | "tag", slug: string, pageNum: number) {
+  const context = preloadLayout(c);
+  const listing = await fetchListing(c.env.DB, kind, c.get("siteContext").siteId, slug, pageNum);
+  return { listing, context };
+}
+
 async function handleCategory(
   c: CategoryCtx,
   pageNum: number,
 ): Promise<Response> {
   const slug = c.req.param("slug") as string;
   const siteContext = c.get("siteContext");
-  const cat = await fetchCategory(c.env.DB, slug);
-  if (!cat) return publicErrorResponse(c, 404);
-  // T27 (BCL-049): honor the operator's items_per_page setting (was hardcoded
-  // 20). The same page size drives both the query LIMIT and the rel=next link.
-  const pageSize = await resolvePageSize(c.env.DB, siteContext.siteId);
-  const articles = await fetchCategoryArticles(
-    c.env.DB,
-    cat.id,
-    siteContext.siteId,
-    pageNum,
-    pageSize,
-  );
+  const { listing, context } = await listingData(c, "category", slug, pageNum);
+  if (!listing) return notFoundWithLayout(c, context);
+  const { taxonomy: cat, articles, pageSize } = listing;
   const path =
     pageNum === 1 ? `/category/${slug}` : `/category/${slug}/page/${pageNum}`;
   const isBot = isBotRequest(c);
@@ -531,9 +503,12 @@ async function handleCategory(
       pageNum,
       slug,
       pageSize,
-      { isBot },
+      { isBot, context: await context },
     );
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: categoryKey(
@@ -545,7 +520,7 @@ async function handleCategory(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () =>
+    render: async () =>
       renderCategoryHtml(
         c.env.DB,
         siteContext,
@@ -554,35 +529,27 @@ async function handleCategory(
         pageNum,
         slug,
         pageSize,
+        { context: await context },
       ),
-  });
+  }, cacheExecutionCtx(c));
 }
 
-// T14: tag listing handler. Tenant-scoped (fetchTag + fetchTagArticles both
-// scope by siteId); an unknown tag renders the styled 404. The cache key uses
+// T14: an unknown tag renders the styled 404. The cache key uses
 // the generic htmlKey(siteId, path, content_version) so each tag/page gets a
 // distinct entry that a content_version bump orphans on publish.
 async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
   const slug = c.req.param("slug") as string;
   const siteContext = c.get("siteContext");
-  const tag = await fetchTag(c.env.DB, slug, siteContext.siteId);
-  if (!tag) return publicErrorResponse(c, 404);
-  // T27 (BCL-049): items_per_page governs the tag listing length too.
-  const pageSize = await resolvePageSize(c.env.DB, siteContext.siteId);
-  const articles = await fetchTagArticles(
-    c.env.DB,
-    tag.id,
-    siteContext.siteId,
-    pageNum,
-    pageSize,
-  );
+  const { listing, context } = await listingData(c, "tag", slug, pageNum);
+  if (!listing) return notFoundWithLayout(c, context);
+  const { taxonomy: tag, articles, pageSize } = listing;
   const path = pageNum === 1 ? `/tag/${slug}` : `/tag/${slug}/page/${pageNum}`;
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () =>
+    render: async () =>
       renderTagHtml(
         c.env.DB,
         siteContext,
@@ -591,27 +558,22 @@ async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
         pageNum,
         slug,
         pageSize,
+        await context,
       ),
-  });
+  }, cacheExecutionCtx(c));
 }
 
-// Shared by /page/:slug and the /:slug catch-all (T40 [F1]) so both
-// entry points serve the IDENTICAL full document (same pageKey cache
-// entry, same /page/<slug> canonical — the sitemap's page URL shape).
-// Returns null when no published page matches the slug.
-//
-// T3 (rescue-3): the render thunk passes c.env.DB into renderPageHtml so the
-// static page is composed through the design layout (fetchPublicLayoutSiteInfo
-// + renderHeader/renderFooter + renderLayout) via the LIVE route — the renderer
-// is db-fed, not orphaned. rescue-2 served a bare document because the route
-// called renderPageHtml without the DB handle, so the page rendered with no
-// design shell, no /assets/public.css and no header/footer regions.
+// Both page URL forms share their canonical path, pageKey and render thunk.
 async function servePage(
   c: CategoryCtx,
   slug: string,
+  candidate?: PublicPageRow | null,
+  context?: Promise<RenderContext | undefined>,
 ): Promise<Response | null> {
   const siteContext = c.get("siteContext");
-  const row = await fetchPublishedPage(c.env.DB, slug, siteContext.siteId);
+  const row = candidate === undefined
+    ? await fetchPublishedPage(c.env.DB, slug, siteContext.siteId, c.env.EDGE_INNER === "1")
+    : candidate;
   if (!row) return null;
   const path = `/page/${slug}`;
   return servePublicHtml(c.env, siteContext, {
@@ -619,14 +581,15 @@ async function servePage(
     path,
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
-    render: () => renderPageHtml(c.env.DB, siteContext, row, path),
-  });
+    render: async () => renderPageHtml(c.env.DB, siteContext, row, path, await context),
+  }, cacheExecutionCtx(c));
 }
 
 router.get("/page/:slug", async (c) => {
   const slug = c.req.param("slug");
-  const res = await servePage(c, slug);
-  return res ?? publicErrorResponse(c, 404);
+  const context = preloadLayout(c);
+  const res = await servePage(c, slug, undefined, context);
+  return res ?? notFoundWithLayout(c, context);
 });
 
 // T12: /sitemap.xml, /feed.xml, /atom.xml all share the same KV-cache discipline:
@@ -647,7 +610,8 @@ async function serveRssFeed(c: CategoryCtx): Promise<Response> {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = feedRssKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -663,7 +627,7 @@ async function serveRssFeed(c: CategoryCtx): Promise<Response> {
   const xml = renderRssFeed(articles, siteInfo(env, siteContext));
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -681,7 +645,8 @@ router.get("/atom.xml", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = feedAtomKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -697,7 +662,7 @@ router.get("/atom.xml", async (c) => {
   const xml = renderAtomFeed(articles, siteInfo(env, siteContext));
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -710,7 +675,8 @@ router.get("/sitemap.xml", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = sitemapKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -719,12 +685,10 @@ router.get("/sitemap.xml", async (c) => {
       }),
     });
   }
-  const articles = await listArticles(env.DB, {
-    status: "published",
-    limit: 5000,
-    siteId: siteContext.siteId,
-  });
-  const pages = await fetchSitemapPages(env.DB, siteContext.siteId);
+  const [articles, pages] = await Promise.all([
+    listArticles(env.DB, { status: "published", limit: 5000, siteId: siteContext.siteId }),
+    fetchSitemapPages(env.DB, siteContext.siteId),
+  ]);
   const xml = renderSitemap({
     baseUrl: siteInfo(env, siteContext).baseUrl,
     articles,
@@ -732,7 +696,7 @@ router.get("/sitemap.xml", async (c) => {
   });
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -756,7 +720,8 @@ router.get("/robots.txt", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = robotsKey(siteContext.siteId, siteContext.settings_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -767,11 +732,7 @@ router.get("/robots.txt", async (c) => {
   // settings.ts) but this reader looked up `robots_txt`, so operator edits
   // never applied. Read the aligned key and substitute the {{DOMAIN}}
   // placeholder (documented in the admin field help) with the live hostname.
-  const override = await fetchSiteSetting(
-    env.DB,
-    siteContext.siteId,
-    "robots_txt_content",
-  );
+  const { override, blockTraining: blockRaw } = await fetchRobotsSettings(env.DB, siteContext.siteId);
   const baseUrl = siteInfo(env, siteContext).baseUrl;
   // rescue-6 (agent-readiness M1.1): with NO full robots override, the default
   // body carries the Content-Signal preference; an operator wanting a HARD
@@ -784,11 +745,6 @@ router.get("/robots.txt", async (c) => {
   if (override !== null) {
     body = override.split("{{DOMAIN}}").join(siteContext.hostname);
   } else {
-    const blockRaw = await fetchSiteSetting(
-      env.DB,
-      siteContext.siteId,
-      "ai_block_training",
-    );
     const blockTraining =
       blockRaw === "1" || (blockRaw ?? "").trim().toLowerCase() === "true";
     body = buildRobotsTxt(baseUrl, { blockTrainingCrawlers: blockTraining });
@@ -798,7 +754,7 @@ router.get("/robots.txt", async (c) => {
       env.HTML_CACHE_TTL_SECONDS,
       SETTINGS_CACHE_TTL_SECONDS,
     ),
-  });
+  }, waitUntil);
   return new Response(body, {
     status: 200,
     headers: robotsAdsCacheHeaders(),
@@ -809,7 +765,8 @@ router.get("/ads.txt", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = adsKey(siteContext.siteId, siteContext.settings_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -831,7 +788,7 @@ router.get("/ads.txt", async (c) => {
       env.HTML_CACHE_TTL_SECONDS,
       SETTINGS_CACHE_TTL_SECONDS,
     ),
-  });
+  }, waitUntil);
   return new Response(body, {
     status: 200,
     headers: robotsAdsCacheHeaders(),
@@ -889,12 +846,21 @@ router.get("/:slug", async (c) => {
     return publicErrorResponse(c, 404);
   }
   const siteContext = c.get("siteContext");
-  // T15 [BCL-027]: honor the operator-managed redirects table FIRST — a
-  // stored, active rule on `/<slug>` sends a legacy URL to its destination
-  // BEFORE any page/article lookup, so the redirect wins even when a slug now
-  // occupies the same path. The status code is whatever the row stores
-  // (301 permanent by default, 302 temporary).
-  const redirect = await checkRedirect(c.env.DB, `/${slug}`, siteContext.siteId);
+  // Include the redirect in whichever batch this inner miss needs. A failed
+  // batch falls through to the original redirect, listicle, page and article gates.
+  const inner = c.env.EDGE_INNER === "1";
+  const variant = c.req.header("x-cms-variant");
+  const selectedId = inner && variant?.startsWith("lst:") ? variant.slice(4) : undefined;
+  const selected = selectedId !== undefined
+    ? await loadSelectedListicle(c.env.DB, siteContext.siteId, slug, selectedId).catch(() => undefined)
+    : undefined;
+  const candidates = inner && selectedId === undefined
+    ? await fetchBareSlugCandidates(c.env.DB, slug, siteContext.siteId).catch(() => undefined)
+    : undefined;
+  const batch = selected ?? candidates;
+  const redirect = batch === undefined
+    ? await checkRedirect(c.env.DB, `/${slug}`, siteContext.siteId)
+    : batch.redirect;
   if (redirect) {
     return c.redirect(
       redirect.destination_path,
@@ -907,17 +873,20 @@ router.get("/:slug", async (c) => {
   // through to the normal page/article/404 behavior below, which stays
   // byte-untouched. Precedence: an operator-published listicle wins over a
   // same-slug page (listicle slugs are the §7.2 public surface).
-  const listicle = await tryServePublishedListicle(c);
+  const context = candidates && (candidates.page || candidates.article?.status !== "published")
+    ? preloadLayout(c)
+    : undefined;
+  const listicle = await tryServePublishedListicle(c, selected);
   if (listicle) return listicle;
-  const page = await servePage(c, slug);
+  const page = await servePage(c, slug, candidates?.page, context);
   if (page) return page;
-  const article = await getArticleBySlug(c.env.DB, slug, {
-    siteId: siteContext.siteId,
-  });
+  const article = candidates === undefined
+    ? await getArticleBySlug(c.env.DB, slug, { siteId: siteContext.siteId })
+    : candidates.article;
   if (article && article.status === "published") {
     return c.redirect(`/article/${encodeURIComponent(slug)}`, 301);
   }
-  return publicErrorResponse(c, 404);
+  return notFoundWithLayout(c, context);
 });
 
 // Re-export the SEO + JSON-LD + edge-cache primitives so downstream

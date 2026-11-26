@@ -35,7 +35,7 @@
 // v3 (23 Nov 2026, X06 SEO fixes): the homepage structured data is wrapped
 // once, share pictures are full web addresses, and Category/About/legal pages
 // carry their own description.
-export const TEMPLATE_VERSION = 3 as const;
+export const TEMPLATE_VERSION = 4 as const;
 
 // Namespace prefixes — these are the wire identifiers that appear at the
 // start of every cache key. Keep them in sync with the field_contract.fields
@@ -249,10 +249,24 @@ export function listicleCandidateKey(
 // <meta name="robots" content="noindex"> and the tab title is the site's public
 // name instead of the internal funnel name. Shell markup changes; the visitor
 // bundle differs only by the version it reports (runtime "15" tracks it).
-export const LEADGEN_TEMPLATE_VERSION = 15 as const;
+// v16: the shell preloads the runtime and starts /lg/attempt. The engine
+// reuses that request. Rotate both the immutable URL and the shell ETag so
+// returning visitors receive the new markup and its matching engine.
+// v17: roll the immutable URL for the engine update that restores returning
+// visitors before first paint. Staging already cached the original v16 bytes.
+export const LEADGEN_TEMPLATE_VERSION = 17 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
+
+export function leadgenBundleKey(
+  siteId: string,
+  variantPublicId: string,
+  snapshotVersion: string,
+  workerVersion?: string,
+): string {
+  return `lgbundle:${requireSiteId(siteId)}:${variantPublicId}:${snapshotVersion}:${LEADGEN_TEMPLATE_VERSION}:${workerVersion || "dev"}`;
+}
 
 // lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}:{template_version}:{activation_version}
 // (§28). The §16.2 A/B assignment is a cheap deterministic edge hash that picks

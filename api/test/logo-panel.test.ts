@@ -247,7 +247,7 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
         hostname: site.hostname,
       },
     });
-    expect(header).toContain('<a class="brand" href="/" aria-label="Acme News home"><img class="brand-logo-img" src="/media/uploads/brand-logo.png"');
+    expect(header).toContain('<a class="brand" href="/" aria-label="Acme News home"><img class="brand-logo-img" src="/cdn-cgi/image/width=400,quality=75,format=auto/media/uploads/brand-logo.png"');
     expect(header).toContain('alt="Acme News"');
     expect(header).not.toContain('<span class="brand-logo"');
     expect(header).not.toContain('<span class="brand-name">');
@@ -478,6 +478,7 @@ describe("T24-AC2 server consumes the directed LogoRequest (RC-044)", () => {
       directed: boolean;
       applied_direction: { prompt: string; style: string; colorScheme: string };
       setting_key: string;
+      storage_key: string;
     };
     expect(body.ok).toBe(true);
     expect(body.directed).toBe(true);
@@ -499,7 +500,8 @@ describe("T24-AC2 server consumes the directed LogoRequest (RC-044)", () => {
       c.sql.startsWith("INSERT INTO site_settings"),
     );
     expect(settingWrite).toBeDefined();
-    expect(settingWrite!.binds).toEqual(["site-a", "logo_media_id", "ai/site-a/logo/site-a.png"]);
+    expect(body.storage_key).toMatch(/^ai\/site-a\/logo\/site-a\/[\da-f-]{36}\.png$/);
+    expect(settingWrite!.binds).toEqual(["site-a", "logo_media_id", body.storage_key]);
   });
 
   it("[api/test/logo-panel.test.ts] T24-AC2: an undirected post (no direction) keeps the default prompt — direction is additive, not forced L2_AUTO_DISAMBIGUATION:T24-AC2:RC-044", async () => {

@@ -212,29 +212,9 @@ function deriveLegalLinks(
 // slug, never from operator text, so it needs no gate.
 const SAFE_HREF_RE = /^(https?:\/\/|\/(?!\/)|#|tel:|mailto:)/i;
 
-// One batched, chunked-at-80 read (d1-database-safety IN(?) rule) of every
-// page across ALL requested types for one site, published only (a draft/
-// archived page must never resolve into a live serve — same as "no match").
-// A site may hold >1 row per page_type (no DB-unique constraint enforces
-// one-per-type); the rows come back show_in_footer=1 first, then lowest
-// display_order, then lowest id, and `byType` keeps the first — but
-// `byTypeCount` records how many there were, and the resolver REFUSES the
-// page_type leg unless that count is 1 (R2 P3 flake-fix, conductor ruling:
-// first-wins across same-type rows is a coin flip, not a resolution). Never
-// throws: a read failure yields
-// an empty map, so every pick degrades to its manual/omitted leg exactly as
-// if the site had no pages at all.
-// R2 P3 FIX-FIRST (BLOCKER-2): now loads BOTH indexes in the same batched
-// read — `bySlug` (the per-site UNIQUE identity, so no tie-break can apply)
-// and `byType` (the pre-fix first-wins map, kept byte-identical for the
-// back-compat leg). One statement per chunk covers both because a pick's
-// slug and its page_type describe the SAME candidate rows; the OR keeps the
-// binding count at 1 + |slugs| + |types| per chunk, chunked at 80 total
-// (d1-database-safety IN(?) rule).
-// R2 P3 flake-fix (conductor ruling): `byTypeCount` carries HOW MANY published
-// rows of that page_type the serving site holds, because the resolver can only
-// honour the page_type leg when that answer is ONE (see
-// resolvePickedLegalPageLinks below).
+// A picked slug is unique per site. A picked type is usable only when exactly
+// one published page has that type. Read both sets in one round, including
+// for long pick lists, using two bound JSON arrays of keys.
 interface PublishedPageIndex {
   bySlug: ReadonlyMap<string, { slug: string }>;
   byType: ReadonlyMap<string, { slug: string }>;
@@ -246,48 +226,28 @@ async function loadPublishedPages(
   pageTypes: readonly string[],
   slugs: readonly string[],
 ): Promise<PublishedPageIndex> {
-  const uniqueTypes = Array.from(new Set(pageTypes.filter((t) => t.trim() !== "")));
-  const uniqueSlugs = Array.from(new Set(slugs.filter((s) => s.trim() !== "")));
+  const uniqueTypes = new Set(pageTypes.filter((t) => t.trim() !== ""));
+  const uniqueSlugs = new Set(slugs.filter((s) => s.trim() !== ""));
   const byType = new Map<string, { slug: string }>();
   const byTypeCount = new Map<string, number>();
   const bySlug = new Map<string, { slug: string }>();
-  if (uniqueTypes.length === 0 && uniqueSlugs.length === 0) return { bySlug, byType, byTypeCount };
-  // Pair each key with its column so one flat list can be chunked at 80
-  // regardless of how the picks split between the two identities.
-  const keys: Array<{ column: "page_type" | "slug"; value: string }> = [
-    ...uniqueTypes.map((value) => ({ column: "page_type" as const, value })),
-    ...uniqueSlugs.map((value) => ({ column: "slug" as const, value })),
-  ];
+  if (uniqueTypes.size === 0 && uniqueSlugs.size === 0) return { bySlug, byType, byTypeCount };
   try {
-    for (let i = 0; i < keys.length; i += 80) {
-      const chunk = keys.slice(i, i + 80);
-      const typeChunk = chunk.filter((k) => k.column === "page_type").map((k) => k.value);
-      const slugChunk = chunk.filter((k) => k.column === "slug").map((k) => k.value);
-      const clauses: string[] = [];
-      if (typeChunk.length > 0) clauses.push(`page_type IN (${typeChunk.map(() => "?").join(",")})`);
-      if (slugChunk.length > 0) clauses.push(`slug IN (${slugChunk.map(() => "?").join(",")})`);
-      const result = await db
-        .prepare(
-          `SELECT page_type AS page_type, slug AS slug FROM pages
-           WHERE site_id = ? AND status = 'published' AND (${clauses.join(" OR ")})
-           ORDER BY show_in_footer DESC, display_order ASC, id ASC`,
-        )
-        .bind(siteId, ...typeChunk, ...slugChunk)
-        .all<{ page_type: string; slug: string }>();
-      for (const row of result.results ?? []) {
-        // byType stays EXACTLY the pre-fix map: populated only from rows the
-        // page_type leg of THIS chunk asked for, so the widened OR can never
-        // change which row wins a type (a chunk that requests type T gets
-        // every published T row, in the same order, exactly as before).
-        if (typeChunk.indexOf(row.page_type) !== -1) {
-          if (!byType.has(row.page_type)) byType.set(row.page_type, { slug: row.slug });
-          // …and count EVERY published row of that type on this site: a type
-          // holding more than one row cannot identify a single page.
-          byTypeCount.set(row.page_type, (byTypeCount.get(row.page_type) ?? 0) + 1);
-        }
-        // (site_id, slug) is UNIQUE — at most one row per slug, no tie-break.
-        bySlug.set(row.slug, { slug: row.slug });
+    const result = await db
+      .prepare(
+        `SELECT page_type AS page_type, slug AS slug FROM pages
+         WHERE site_id = ? AND status = 'published'
+           AND (page_type IN (SELECT value FROM json_each(?)) OR slug IN (SELECT value FROM json_each(?)))
+         ORDER BY show_in_footer DESC, display_order ASC, id ASC`,
+      )
+      .bind(siteId, JSON.stringify([...uniqueTypes]), JSON.stringify([...uniqueSlugs]))
+      .all<{ page_type: string; slug: string }>();
+    for (const row of result.results ?? []) {
+      if (uniqueTypes.has(row.page_type)) {
+        if (!byType.has(row.page_type)) byType.set(row.page_type, { slug: row.slug });
+        byTypeCount.set(row.page_type, (byTypeCount.get(row.page_type) ?? 0) + 1);
       }
+      bySlug.set(row.slug, { slug: row.slug });
     }
   } catch (err) {
     console.warn(
@@ -543,11 +503,24 @@ export async function resolveSiteBranding(
     );
   }
 
+  return siteBrandingFromSettings(db, siteId, settings, site?.domain, legalPagePicks);
+}
+
+// A reverse variant lookup already has the settings and identity from its
+// definition read. Only the published pages named by the effective footer
+// can require a further read.
+export async function siteBrandingFromSettings(
+  db: D1Database,
+  siteId: string,
+  settings: Readonly<Record<string, string>>,
+  siteDomain: string | null | undefined,
+  legalPagePicks?: readonly SiteBrandingLegalPagePick[],
+): Promise<SiteBranding> {
   // site_name: settings.site_name → the sites row's host identity (domain) →
   // siteId (terminal non-empty defensive leg; a resolved activation implies
   // the sites row exists, so this leg is unreachable in practice).
   const settingName = trimmed(settings.site_name);
-  const domain = trimmed(site?.domain);
+  const domain = trimmed(siteDomain);
   const siteName = settingName !== "" ? settingName : domain !== "" ? domain : siteId;
 
   // Logo ladder — byte-for-byte the brandFromSettings logic

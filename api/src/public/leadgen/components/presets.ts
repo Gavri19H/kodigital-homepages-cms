@@ -117,7 +117,7 @@ import {
   VEHICLE_TYPED_ANSWER_MAX,
   type VehicleSourceConfig,
 } from "../../../leadgen/vehicles/props";
-import { cfTransform } from "../../templates/responsive-img";
+import { cfTransform, srcsetWidths } from "../../templates/responsive-img";
 import { modelsForYear } from "../../../leadgen/vehicles/format";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +132,64 @@ function esc(value: unknown): string {
 function attr(name: string, value: unknown): string {
   if (value === undefined || value === null || value === "") return "";
   return ` ${name}="${esc(value)}"`;
+}
+
+// The funnel sheet uses px and rem. Keep the CSS cap itself on the image and
+// round only the HTML dimensions and Cloudflare's integer transform options.
+export function funnelImagePixels(length: string, fallback: number): number {
+  const match = /^(\d*\.?\d+)(px|rem)$/.exec(length.trim());
+  if (!match) return fallback;
+  const px = Number(match[1]) * (match[2] === "rem" ? 16 : 1);
+  return Number.isFinite(px) && px >= 1 ? px : fallback;
+}
+
+function imageCandidate(url: string, axis: "height" | "width", pixels: number): string {
+  // Spaces in old media keys must stay inside one srcset candidate.
+  return cfTransform(url.replace(/\s/g, encodeURIComponent), `${axis}=${Math.round(pixels)},fit=scale-down,format=auto,quality=75`);
+}
+
+function densitySrcset(url: string, axis: "height" | "width", pixels: number): string {
+  const single = imageCandidate(url, axis, pixels);
+  const double = imageCandidate(url, axis, pixels * 2);
+  return single === double ? "" : `${single} 1x, ${double} 2x`;
+}
+
+// Only /media/ is owned by this Worker. Keep external and other rooted URLs
+// intact. The fallback src is sized too, including for clients without srcset.
+export function funnelImageAttrs(url: string, alt: string, width: number, height: number, axis: "height" | "width" = "height"): string {
+  const local = url.startsWith("/media/");
+  const pixels = axis === "height" ? height : width;
+  const src = local ? imageCandidate(url, axis, pixels * 2) : url;
+  return `src="${esc(src)}" alt="${esc(alt)}"` +
+    (local ? attr("srcset", densitySrcset(url, axis, pixels)) : "") +
+    ` width="${Math.round(width)}" height="${Math.round(height)}"`;
+}
+
+export type LogoDimensions = Readonly<Record<string, { width: number; height: number }>>;
+
+// Width is auto in the stylesheet. Give the browser the decoded aspect
+// ratio before the file arrives, including on a mobile <picture> source.
+export function logoWidth(url: string, height: number, dimensions?: LogoDimensions): number {
+  const size = dimensions?.[url];
+  return size && Number.isFinite(size.width) && size.width > 0 && Number.isFinite(size.height) && size.height > 0
+    ? Math.max(1, Math.round(Math.round(height) * size.width / size.height))
+    : Math.round(height * 3);
+}
+
+// Resolved media metadata is for the renderer. The public config projects
+// authored props separately and never needs these dimensions.
+export type ShellLogoNode = LeadgenComponentNode & { logoDimensions?: LogoDimensions };
+
+// Fluid images use width descriptors so the browser can select for its actual
+// viewport. The caller owns the CSS box (or, for authored media, its absence).
+export function fluidImageAttrs(url: string, alt: string, widths: readonly number[], sizes: string): string {
+  if (!url.startsWith("/media/")) return `src="${esc(url)}" alt="${esc(alt)}"`;
+  const candidates = widths.map(width => ({ width, url: imageCandidate(url, "width", width) }));
+  const src = candidates.at(-1)?.url ?? url;
+  const attrs = `src="${esc(src)}" alt="${esc(alt)}"`;
+  if (candidates.every(candidate => candidate.url === src)) return attrs;
+  const srcset = candidates.map(candidate => `${candidate.url} ${candidate.width}w`).join(", ");
+  return attrs + attr("srcset", srcset) + attr("sizes", sizes);
 }
 
 // A `style="…"` string built from token values only (no author content).
@@ -983,14 +1041,33 @@ export function renderProgressBar(node: LeadgenComponentNode, design: DefaultFun
   );
 }
 
-export function renderHeaderLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+function siteLogoImage(
+  url: string, alt: string, design: DefaultFunnelDesign, loading: "eager" | "lazy",
+  height = funnelImagePixels(design.header.logoFontSize, 18), mobileHeight = height, dimensions?: LogoDimensions,
+): string {
+  const mobileSrcset = mobileHeight !== height && url.startsWith("/media/")
+    ? densitySrcset(url, "height", mobileHeight) : "";
+  const img = `<img class="lg-logo-img" ${funnelImageAttrs(url, alt, logoWidth(url, height, dimensions), height)}` +
+    ` loading="${loading}" decoding="async"` + style({
+      "max-height": design.header.logoFontSize, width: "auto", "object-fit": "contain",
+      // When both breakpoints use one file, the frame caps its height at each breakpoint.
+      height: !mobileSrcset && mobileHeight > height ? `${mobileHeight}px` : undefined,
+      display: mobileSrcset ? "block" : undefined,
+    }) + ">";
+  if (!mobileSrcset) return img;
+  return `<picture><source media="(max-width: ${esc(design.breakpoints.mobileMax)})"` +
+    attr("srcset", mobileSrcset) +
+    ` width="${logoWidth(url, mobileHeight, dimensions)}" height="${Math.round(mobileHeight)}">${img}</picture>`;
+}
+
+export function renderHeaderLogo(node: ShellLogoNode, design: DefaultFunnelDesign, height?: number, mobileHeight?: number): string {
   const logoMediaId = propStr(node, "logoMediaId");
-  const logoUrl = propStr(node, "logoUrl");
+  const logoUrl = mediaUrl(propStr(node, "logoUrl"));
   const siteName = propStr(node, "siteName") ?? "";
   const accent = propStr(node, "accent");
   const inner =
-    logoUrl !== undefined && logoUrl !== ""
-      ? `<img class="lg-logo-img" src="${esc(mediaUrl(logoUrl))}" alt="${esc(siteName)}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+    logoUrl !== null
+      ? siteLogoImage(logoUrl, siteName, design, "eager", height, mobileHeight, node.logoDimensions)
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName)}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -1914,6 +1991,7 @@ function renderCardGrid(
     const fitRaw = (c as unknown as Record<string, unknown>)["image_fit"];
     const choiceFit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
     const fit = nodeFit ?? choiceFit;
+    const imageAlt = typeof c.image_alt === "string" && c.image_alt !== "" ? c.image_alt : c.label;
     const media =
       vh?.media !== undefined
         ? vh.media(c)
@@ -1922,8 +2000,7 @@ function renderCardGrid(
           ? `<span class="lg-card-img-placeholder" aria-hidden="true">Image</span>`
           : !hasImage
           ? iconSlot(emoji ?? c.icon)
-          : `<img class="lg-card-img" src="${esc(imageHref)}"` +
-            ` alt="${esc(typeof c.image_alt === "string" && c.image_alt !== "" ? c.image_alt : c.label)}"` +
+          : `<img class="lg-card-img" ${funnelImageAttrs(imageHref, imageAlt, 32, 32)}` +
             style({ "object-fit": fit }) +
             ` loading="lazy">`
         : iconSlot(emoji ?? c.icon);
@@ -2448,12 +2525,9 @@ function vehicleBaseNode(
 // width/height so the card never jumps while it loads. alt="" — the make's
 // name is printed right under it. Off-site addresses get the bare <img>.
 function vehicleLogoImg(url: string, eager: boolean): string {
-  const sameOrigin = url.startsWith("/") && !url.startsWith("//");
-  const at = (h: number): string => cfTransform(url, `height=${h},fit=scale-down,format=auto`);
   return (
-    `<img class="lg-card-logo" src="${esc(url)}"` +
-    (sameOrigin ? ` srcset="${esc(`${at(40)} 1x, ${at(80)} 2x`)}"` : "") +
-    ` alt="" width="80" height="40" loading="${eager ? "eager" : "lazy"}" decoding="async">`
+    `<img class="lg-card-logo" ${funnelImageAttrs(url, "", 80, 40)}` +
+    ` loading="${eager ? "eager" : "lazy"}" decoding="async">`
   );
 }
 
@@ -4714,13 +4788,36 @@ function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; al
   return out;
 }
 
-export function renderLogoStrip(node: LeadgenComponentNode, _design: DefaultFunnelDesign): string {
+// These are the section presets that paint a logo at its natural width.
+export function sectionLogoUrls(node: LeadgenComponentNode): (string | null)[] {
+  if (node.type === "LogoStrip") return logoStripLogos(node).map(logo => mediaUrl(logo.mediaId));
+  if (node.type === "HeaderLogo" || (node.type === "ImageBlock" && propStr(node, "source") === "auto_logo")) {
+    return [mediaUrl(propStr(node, "logoUrl"))];
+  }
+  if (node.type === "HeaderBar") {
+    const ref = propStr(node, "logoMediaId");
+    return isPendingMediaRef(ref) ? [] : [mediaUrl(ref)];
+  }
+  return [];
+}
+
+export function renderLogoStrip(
+  node: ShellLogoNode,
+  design: DefaultFunnelDesign,
+  brandLogos = false,
+  lazy = true,
+): string {
+  const baseHeight = funnelImagePixels(design.logoStrip.logoMaxHeight, 32);
   const logos = logoStripLogos(node)
-    .map(
-      (logo) =>
-        `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
-        ` src="${esc(mediaUrl(logo.mediaId))}" alt="${esc(logo.alt)}" loading="lazy">`,
-    )
+    .map((logo) => {
+      const url = mediaUrl(logo.mediaId);
+      if (url === null) return "";
+      // Only the brand-logos frame region scopes the per-logo CSS size steps.
+      const size = brandLogos ? logo.size : undefined;
+      const height = size === "s" ? 24 : size === "l" ? 48 : baseHeight;
+      return `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
+        ` ${funnelImageAttrs(url, logo.alt, logoWidth(url, height, node.logoDimensions), height)}${lazy ? ' loading="lazy"' : ""}>`;
+    })
     .join("");
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
 }
@@ -4933,17 +5030,14 @@ export function renderTextBlock(
   }
 }
 
-// ImageBlock source="auto_logo": the logo RESOLUTION fragment is
-// byte-identical to renderHeaderLogo's own `inner` branch (same props —
-// logoUrl/siteName/accent; same design.header.* token slots), per §5.3
+// ImageBlock source="auto_logo" shares the header's logo resolution, props
+// and design tokens. The section image can load lazily, per §5.3
 // "HeaderLogo/LogoStrip (in-unit) -> Image/Logo -> Source = Auto site logo".
 // The OUTER wrapper deliberately does NOT reproduce renderHeaderLogo's
 // `<header>` landmark tag: HeaderLogo is a frame-scope, one-per-page chrome
 // element; ImageBlock is a unit-scope primitive that can appear anywhere/any
 // number of times in a Section, so repeating the `<header>` landmark would be
-// an accessibility regression (duplicate landmarks), not a fidelity win —
-// only the logo RESOLUTION markup (img vs text+accent span) matches byte for
-// byte.
+// an accessibility regression (duplicate landmarks).
 // v3.1 R3b deliverable 4: neither this module nor ANY caller (grep-verified —
 // zero non-schema/non-studio hits for "auto_logo" repo-wide) ever injects real
 // site branding (logoUrl/siteName) onto an in-Section ImageBlock node the way
@@ -4956,14 +5050,14 @@ export function renderTextBlock(
 // placeholder using ONLY existing design tokens (input.border/
 // page.textLightColor — no new visual language invented) — the moment a real
 // caller populates logoUrl/siteName (this function's own existing, unchanged
-// contract), the placeholder branch is bypassed and real branding renders,
-// byte-identical to today.
-function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
-  const logoUrl = propStr(node, "logoUrl");
+// contract), the placeholder branch is bypassed and real branding renders.
+function renderImageBlockAutoLogo(node: ShellLogoNode, design: DefaultFunnelDesign): string {
+  const logoRef = propStr(node, "logoUrl");
+  const logoUrl = mediaUrl(logoRef);
   const siteNameRaw = propStr(node, "siteName");
   const siteName = siteNameRaw !== undefined && siteNameRaw !== "" ? siteNameRaw : undefined;
   const accent = propStr(node, "accent");
-  if (logoUrl === undefined && siteName === undefined) {
+  if (logoRef === undefined && siteName === undefined) {
     return (
       `<div class="lg-image-block lg-image-block-logo lg-image-block-placeholder"${hydration(node)} data-source="auto_logo" data-placeholder="true"` +
       style({ border: design.input.border, color: design.page.textLightColor, "font-family": design.header.logoFontFamily }) +
@@ -4971,8 +5065,8 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
     );
   }
   const inner =
-    logoUrl !== undefined && logoUrl !== ""
-      ? `<img class="lg-logo-img" src="${esc(mediaUrl(logoUrl))}" alt="${esc(siteName ?? "")}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+    logoUrl !== null
+      ? siteLogoImage(logoUrl, siteName ?? "", design, "lazy", undefined, undefined, node.logoDimensions)
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName ?? "")}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -4987,12 +5081,13 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
 // logoMediaId->src convention already used by HeaderLogo/HeaderBar.
 function renderImageBlockMedia(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const mediaId = propStr(node, "logoMediaId");
+  const url = mediaUrl(mediaId);
   const alt = propStr(node, "alt") ?? "";
   // OWNER RULING (2026-08-11): a logo slot the operator has not filled yet takes
   // this SAME labelled placeholder rather than a broken image. The studio seeds
   // MEDIA_PENDING_REF (it must seed something — logoMediaId is a required field),
   // so "not picked yet" and "empty" are one branch from here on.
-  if (mediaId === undefined || mediaId === "" || isPendingMediaRef(mediaId)) {
+  if (url === null || isPendingMediaRef(mediaId)) {
     // v3.1 R3b deliverable 4: an honest labeled placeholder (same token-only
     // treatment as the auto_logo branch above) instead of an invisible box —
     // the operator sees exactly where a chosen image will render.
@@ -5004,7 +5099,7 @@ function renderImageBlockMedia(node: LeadgenComponentNode, design: DefaultFunnel
   }
   return (
     `<div class="lg-image-block"${hydration(node)} data-source="media">` +
-    `<img class="lg-image-block-img" src="${esc(mediaUrl(mediaId))}" alt="${esc(alt)}" loading="lazy">` +
+    `<img class="lg-image-block-img" ${fluidImageAttrs(url, alt, [640, 960, 1280], "100vw")} loading="lazy">` +
     `</div>`
   );
 }
@@ -5246,9 +5341,12 @@ export function renderBackgroundPanel(
   const gradient = bgPanelGradientValue(design, propStr(node, "gradient"));
   const background = gradient ?? bgPanelBackgroundValue(design, propStr(node, "background"));
   const imageMediaId = propStr(node, "imageMediaId");
+  const url = mediaUrl(imageMediaId);
+  const width = Math.round(funnelImagePixels(design.content.maxWidth, 600));
   const image =
-    imageMediaId !== undefined && imageMediaId !== "" && !isPendingMediaRef(imageMediaId)
-      ? `<img class="lg-bg-panel-img" src="${esc(mediaUrl(imageMediaId))}" alt="" aria-hidden="true" loading="lazy">`
+    url !== null && !isPendingMediaRef(imageMediaId)
+      ? `<img class="lg-bg-panel-img" ${fluidImageAttrs(url, "", srcsetWidths(width), `(max-width: ${width}px) 100vw, ${width}px`)}` +
+        ` width="${width}" height="${Math.round(width * 9 / 16)}" aria-hidden="true" loading="lazy">`
       : "";
   return (
     `<div class="lg-bg-panel"${hydration(node)}${style({ background })}>` +
@@ -5385,8 +5483,10 @@ export function renderSpacer(node: LeadgenComponentNode, design: DefaultFunnelDe
 // slot · optional CTA {label, href|tel}. Fully class-driven (headerBar token
 // group in the scoped chrome CSS); the back toggle carries the engine's
 // data-lg-back hook (03 §3.3) exactly like the BackButton chrome component.
-export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
+export function renderHeaderBar(node: ShellLogoNode, design: DefaultFunnelDesign): string {
   const logoMediaId = propStr(node, "logoMediaId");
+  const url = mediaUrl(logoMediaId);
+  const height = funnelImagePixels(design.headerBar.logoMaxHeight, 32);
   // OWNER RULING (2026-08-11): "not picked yet" (MEDIA_PENDING_REF, what the
   // studio seeds for a freshly added header) shows a labelled slot; a genuinely
   // ABSENT logo still renders nothing at all, exactly as before.
@@ -5394,8 +5494,8 @@ export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunne
     ? `<span class="lg-image-block-placeholder lg-headerbar-logo-placeholder" data-placeholder="true"` +
       style({ border: design.input.border, color: design.page.textLightColor }) +
       `>Logo</span>`
-    : logoMediaId !== undefined && logoMediaId !== ""
-      ? `<img class="lg-headerbar-logo" src="${esc(mediaUrl(logoMediaId))}" alt="${esc(propStr(node, "logoAlt") ?? "")}" decoding="async">`
+    : url !== null
+      ? `<img class="lg-headerbar-logo" ${funnelImageAttrs(url, propStr(node, "logoAlt") ?? "", logoWidth(url, height, node.logoDimensions), height)} loading="eager" decoding="async">`
       : "";
   const backLabel = propStr(node, "backLabel") ?? "Back";
   const back = propBool(node, "back")

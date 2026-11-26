@@ -2,6 +2,10 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   MEDIA: R2Bucket;
+  VITALS_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
+  PERFSTAGE?: string;
+  ADMIN_ALLOW_IP?: string;
   // Contracted static-asset binding. Optional in unit environments so a
   // missing binding can fail closed with a typed dependency response.
   ADMIN_ASSETS?: Fetcher;
@@ -15,6 +19,9 @@ export interface Env {
   ADMIN_BASE_URL: string;
   ADMIN_BASE_PATH: string;
   CACHE_API_ENABLED: string;
+  IMAGE_TRANSFORMS?: string;
+  EDGE_HEDGE_MS?: string;
+  EDGE_INNER?: string;
   HTML_CACHE_TTL_SECONDS: string;
   OPENAI_TEXT_MODEL: string;
   OPENAI_IMAGE_MODEL: string;
@@ -59,6 +66,9 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
   PREVIEW_SECRET?: string;
+  SLACK_WEBHOOK_URL?: string;
+  SLACK_BOT_TOKEN?: string;
+  SLACK_ALERT_CHANNEL?: string;
   CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
   CLOUDFLARE_CACHE_API_TOKEN?: string;
   ALLOWED_CF_SERVICE_TOKEN_IDS?: string;
@@ -108,6 +118,13 @@ export interface Env {
   // bound; absent/empty/disallowed references fail closed before fetch. The one
   // declared here backs the seeded (disabled-by-default) facebook row.
   LISTICLE_S2S_TOKEN_FACEBOOK?: string;
+}
+
+// This is a deployment setting shared by every tenant in the Worker.
+export let imageTransformsEnabled = true;
+
+export function configureImageTransforms(value: Env["IMAGE_TRANSFORMS"]): void {
+  imageTransformsEnabled = value !== "off";
 }
 
 // Read a named secret/var off the env by STRING key. Trusted code uses this for

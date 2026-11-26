@@ -1,0 +1,699 @@
+{
+  "ALL /*": {
+    "effect": "none",
+    "reason": "Host gates, request logging and tenant resolution run as middleware (src/index.ts:82, src/index.ts:125, src/public/middleware.ts:51)."
+  },
+  "ALL /admin": {
+    "effect": "none",
+    "reason": "Checks Cloudflare Access for the admin shell (src/admin/router.ts:27)."
+  },
+  "ALL /admin/*": {
+    "effect": "none",
+    "reason": "Checks Cloudflare Access for admin routes (src/admin/router.ts:28)."
+  },
+  "ALL /admin/conversions/*": {
+    "effect": "none",
+    "reason": "Adds an access warning to authenticated Conversions HTML (src/admin/conversions/bootstrap-warning.ts:58)."
+  },
+  "ALL /admin/leadgen": {
+    "effect": "none",
+    "reason": "Sets response headers on the LeadGen admin shell (src/admin/leadgen/ui.ts:91)."
+  },
+  "ALL /admin/leadgen/*": {
+    "effect": "none",
+    "reason": "Sets response headers on LeadGen admin pages (src/admin/leadgen/ui.ts:91)."
+  },
+  "ALL /admin/listicles": {
+    "effect": "none",
+    "reason": "Sets response headers on the listicle admin shell (src/admin/listicles/ui.ts:73)."
+  },
+  "ALL /admin/listicles/*": {
+    "effect": "none",
+    "reason": "Sets response headers on listicle admin pages (src/admin/listicles/ui.ts:73)."
+  },
+  "POST /admin/media": {
+    "effect": "none",
+    "reason": "Adds a library asset under a fresh storage key. Attaching it is a separate write (src/media/upload.ts:87)."
+  },
+  "ALL /admin/reporting/*": {
+    "effect": "none",
+    "reason": "Adds an access warning to authenticated Reporting HTML (src/admin/conversions/bootstrap-warning.ts:58)."
+  },
+  "ALL /api/admin/*": {
+    "effect": "none",
+    "reason": "Checks Cloudflare Access for the admin API (src/admin/router.ts:29)."
+  },
+  "POST /api/admin/ai/article": {
+    "effect": "none",
+    "reason": "Returns generated fields and media to the article editor for review (src/admin/ai-article.ts:498)."
+  },
+  "POST /api/admin/ai/chat": {
+    "effect": "none",
+    "reason": "Logs the generation and returns text to the editor (src/admin/ai-api.ts:231)."
+  },
+  "POST /api/admin/ai/image": {
+    "effect": "none",
+    "reason": "Creates a library image under a unique generation key (src/admin/ai-image.ts:147)."
+  },
+  "POST /api/admin/ai/logo": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "POST /api/admin/ai/presets": {
+    "effect": "none",
+    "reason": "Adds a generation prompt to the editor library (src/admin/ai-presets-write.ts:76)."
+  },
+  "DELETE /api/admin/ai/presets/:id": {
+    "effect": "none",
+    "reason": "Removes a prompt from the editor library (src/admin/ai-presets-write.ts:201)."
+  },
+  "PUT /api/admin/ai/presets/:id": {
+    "effect": "none",
+    "reason": "Updates the editor’s generation prompt or its availability (src/admin/ai-presets-write.ts:163)."
+  },
+  "POST /api/admin/ai/presets/:id/use": {
+    "effect": "none",
+    "reason": "Increments the prompt usage counter (src/admin/ai-presets.ts:164)."
+  },
+  "POST /api/admin/ai/site-text": {
+    "effect": "none",
+    "reason": "Returns suggested copy for the editor to save (src/admin/site-text-ai.ts:183)."
+  },
+  "POST /api/admin/articles": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "DELETE /api/admin/articles/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "PATCH /api/admin/articles/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/archive": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/cancel-schedule": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/preview-link": {
+    "effect": "none",
+    "reason": "Mints a signed link to a preview version (src/admin/workflow-api.ts:198)."
+  },
+  "POST /api/admin/articles/:id/publish": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/schedule": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/unpublish": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/:id/versions/:versionId/restore": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/articles/bulk-vertical": {
+    "effect": "none",
+    "reason": "Sets the editorial vertical ID used for article management (src/admin/verticals-handlers.ts:434)."
+  },
+  "POST /api/admin/cache/stats/reset": {
+    "effect": "none",
+    "reason": "Resets hit and miss counters (src/admin/cache-stats-handler.ts:26)."
+  },
+  "POST /api/admin/categories": {
+    "effect": "purges",
+    "proof": "edge-p1-fixes.test.ts"
+  },
+  "DELETE /api/admin/categories/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "PUT /api/admin/categories/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "PUT /api/admin/conversions/provider-connections/:connection_id/meta": {
+    "effect": "none",
+    "reason": "Saves private Meta provider configuration for conversion delivery (src/admin/conversions/router.ts:245)."
+  },
+  "ALL /api/admin/conversions/v1/*": {
+    "effect": "none",
+    "reason": "Forwards authorized Conversions operations to the private Core service (src/admin/conversions/proxy.ts:742)."
+  },
+  "PATCH /api/admin/domains/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "ALL /api/admin/leadgen/*": {
+    "effect": "none",
+    "reason": "Sets response headers on the LeadGen admin API (src/admin/leadgen/router.ts:175)."
+  },
+  "POST /api/admin/leadgen/analytics/rebuild-range": {
+    "effect": "none",
+    "reason": "Backfills the LeadGen reporting mirror for a date range (src/admin/leadgen/analytics-admin-handlers.ts:56)."
+  },
+  "POST /api/admin/leadgen/assets/brand-logo": {
+    "effect": "none",
+    "reason": "Creates a media-library logo for the operator to select (src/admin/leadgen/assets-handlers.ts:139)."
+  },
+  "POST /api/admin/leadgen/assets/persona-image": {
+    "effect": "none",
+    "reason": "Returns a generated library image for later placement and accounts for quota (src/admin/leadgen/assets-handlers.ts:361)."
+  },
+  "POST /api/admin/leadgen/auctions": {
+    "effect": "none",
+    "reason": "Creates auction configuration with no participating offers (src/admin/leadgen/auctions-handlers.ts:544)."
+  },
+  "DELETE /api/admin/leadgen/auctions/:id": {
+    "effect": "none",
+    "reason": "Archive and hard delete both check for referencing funnel variants (src/admin/leadgen/auctions-handlers.ts:737, src/admin/leadgen/auctions-handlers.ts:797)."
+  },
+  "PATCH /api/admin/leadgen/auctions/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Changing the referenced auction’s carrier normalization version changes the attempt binding for every variant using it (src/public/leadgen/attempt.ts:266)."
+  },
+  "PUT /api/admin/leadgen/auctions/:id/banner": {
+    "effect": "none",
+    "reason": "Sets banner configuration used when auction results render (src/admin/leadgen/auctions-handlers.ts:1811)."
+  },
+  "PUT /api/admin/leadgen/auctions/:id/offers": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "The bundle stores whether any enabled auction participant supplies click tracking (src/public/leadgen/serve.ts:429)."
+  },
+  "POST /api/admin/leadgen/auctions/:id/rules": {
+    "effect": "none",
+    "reason": "Adds a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1644)."
+  },
+  "DELETE /api/admin/leadgen/auctions/:id/rules/:rule_id": {
+    "effect": "none",
+    "reason": "Removes a rule from live auction evaluation (src/admin/leadgen/auctions-handlers.ts:1731)."
+  },
+  "PATCH /api/admin/leadgen/auctions/:id/rules/:rule_id": {
+    "effect": "none",
+    "reason": "Edits a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1708)."
+  },
+  "POST /api/admin/leadgen/auctions/:id/simulate": {
+    "effect": "none",
+    "reason": "Runs an admin simulation using sample answers and context (src/admin/leadgen/auctions-handlers.ts:2142)."
+  },
+  "POST /api/admin/leadgen/component-presets": {
+    "effect": "none",
+    "reason": "Saves a reusable component in the Studio preset library (src/admin/leadgen/sections-handlers.ts:3156)."
+  },
+  "DELETE /api/admin/leadgen/component-presets/:name": {
+    "effect": "none",
+    "reason": "Removes the named preset from the Studio library (src/admin/leadgen/sections-handlers.ts:3166)."
+  },
+  "POST /api/admin/leadgen/experiments/:id/start": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/experiments/:id/stop": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/frame-template-records": {
+    "effect": "none",
+    "reason": "Creates an unassigned frame template in the library (src/admin/leadgen/frame-handlers.ts:581)."
+  },
+  "DELETE /api/admin/leadgen/frame-template-records/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-content.test.ts"
+  },
+  "PATCH /api/admin/leadgen/frame-template-records/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-content.test.ts"
+  },
+  "PUT /api/admin/leadgen/frame-template-records/:id/default": {
+    "effect": "none",
+    "reason": "Selects the library default for authoring. Existing public frames use their saved references (src/admin/leadgen/frame-handlers.ts:646)."
+  },
+  "POST /api/admin/leadgen/frame-template-records/:id/duplicate": {
+    "effect": "none",
+    "reason": "Copies a frame template into a new unassigned library record (src/admin/leadgen/frame-handlers.ts:628)."
+  },
+  "DELETE /api/admin/leadgen/funnels/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PATCH /api/admin/leadgen/funnels/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/funnels/:id/apply-template": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-content.test.ts"
+  },
+  "POST /api/admin/leadgen/funnels/:id/duplicate": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/funnels/:id/experiments": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/funnels/:id/frame": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-content.test.ts"
+  },
+  "PUT /api/admin/leadgen/funnels/:id/theme": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-content.test.ts"
+  },
+  "POST /api/admin/leadgen/funnels/:id/variants": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/media-platforms": {
+    "effect": "none",
+    "reason": "Creates a conversion postback destination (src/admin/leadgen/media-platforms-handlers.ts:193)."
+  },
+  "DELETE /api/admin/leadgen/media-platforms/:id": {
+    "effect": "none",
+    "reason": "Removes a conversion postback destination (src/admin/leadgen/media-platforms-handlers.ts:321)."
+  },
+  "PATCH /api/admin/leadgen/media-platforms/:id": {
+    "effect": "none",
+    "reason": "Changes conversion postback dispatch settings (src/admin/leadgen/media-platforms-handlers.ts:298)."
+  },
+  "POST /api/admin/leadgen/offers": {
+    "effect": "none",
+    "reason": "Creates an offer and default placement for later attachment to an auction (src/admin/leadgen/offers-handlers.ts:993)."
+  },
+  "DELETE /api/admin/leadgen/offers/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Archiving the last active tracking offer clears the auction’s click tracking flag in the bundle (src/public/leadgen/serve.ts:429)."
+  },
+  "PATCH /api/admin/leadgen/offers/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Editing an offer can change the tracking flag stored for its auctions or the redirect target in a quote’s snapshot (src/admin/leadgen/offers-handlers.ts:1554, src/admin/leadgen/offers-handlers.ts:1584)."
+  },
+  "POST /api/admin/leadgen/offers/:id/creative-preview": {
+    "effect": "none",
+    "reason": "Returns a preview document to the offer editor (src/admin/leadgen/offer-creative-preview.ts:102)."
+  },
+  "POST /api/admin/leadgen/offers/:id/duplicate": {
+    "effect": "none",
+    "reason": "Copies the offer and its placements under new IDs for later attachment (src/admin/leadgen/offers-handlers.ts:2275)."
+  },
+  "POST /api/admin/leadgen/offers/:id/payload-schemas": {
+    "effect": "none",
+    "reason": "Updates provider payload mappings in place. Cached shells use mapping row IDs (src/admin/leadgen/offers-handlers.ts:2996, src/public/leadgen/config-dto.ts:760)."
+  },
+  "POST /api/admin/leadgen/offers/:id/payload-schemas/from-example": {
+    "effect": "none",
+    "reason": "Creates the outbound provider payload schema from a sample (src/admin/leadgen/offers-handlers.ts:3045)."
+  },
+  "POST /api/admin/leadgen/offers/:id/payload/sample-answers": {
+    "effect": "none",
+    "reason": "Builds sample answers for the operator’s provider test (src/admin/leadgen/payload-builder-handlers.ts:1055)."
+  },
+  "PUT /api/admin/leadgen/offers/:id/payload/sample-answers": {
+    "effect": "none",
+    "reason": "Stores an expiring provider-test draft in KV (src/admin/leadgen/payload-builder-handlers.ts:1144)."
+  },
+  "POST /api/admin/leadgen/offers/:id/test": {
+    "effect": "none",
+    "reason": "Runs a provider test and records the sample response and diagnostics (src/admin/leadgen/payload-builder-handlers.ts:682)."
+  },
+  "POST /api/admin/leadgen/quotes": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/quotes/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PATCH /api/admin/leadgen/quotes/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/quotes/:id/activation/:site_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/quotes/:id/activation/:site_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/quotes/:id/default-funnel": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/duplicate": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/experiments": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/quotes/:id/funnel-order": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/funnels": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/routing-rules": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/quotes/:id/shared-page": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/shared-page": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/quotes/:id/shared-page": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/quotes/:id/variants": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/routing-rules/:rule_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PATCH /api/admin/leadgen/routing-rules/:rule_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/routing-rules/:rule_id/duplicate": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/sections": {
+    "effect": "none",
+    "reason": "Adds a section to the library for later placement in a funnel (src/admin/leadgen/sections-handlers.ts:934)."
+  },
+  "DELETE /api/admin/leadgen/sections/:id": {
+    "effect": "none",
+    "reason": "Deletes a library section only when placements and rules do not reference it (src/admin/leadgen/sections-handlers.ts:1280)."
+  },
+  "PATCH /api/admin/leadgen/sections/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Each placed section’s full row and its answer-map version feed the prepared funnel (src/public/leadgen/resolver.ts:2050, src/public/leadgen/config-dto.ts:760)."
+  },
+  "POST /api/admin/leadgen/sections/:id/duplicate": {
+    "effect": "none",
+    "reason": "Copies a library section and its mappings under a new ID (src/admin/leadgen/sections-handlers.ts:1356)."
+  },
+  "POST /api/admin/leadgen/sections/:id/validate-payload": {
+    "effect": "none",
+    "reason": "Returns validation results for a sample section payload (src/admin/leadgen/sections-handlers.ts:2882)."
+  },
+  "POST /api/admin/leadgen/sections/preview": {
+    "effect": "none",
+    "reason": "Renders draft components with preview settings for the Studio (src/admin/leadgen/sections-handlers.ts:2140)."
+  },
+  "POST /api/admin/leadgen/themes": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/themes/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PATCH /api/admin/leadgen/themes/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/variants/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PUT /api/admin/leadgen/variants/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/variants/:id/fork": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/variants/:id/preview": {
+    "effect": "none",
+    "reason": "Renders the requested funnel variant for the Studio preview (src/admin/leadgen/quotes-handlers.ts:5195)."
+  },
+  "POST /api/admin/leadgen/variants/:id/rules": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "DELETE /api/admin/leadgen/variants/:id/rules/:rule_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "PATCH /api/admin/leadgen/variants/:id/rules/:rule_id": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "POST /api/admin/leadgen/variants/:variant_id/rules/:rule_id/duplicate": {
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-quotes.test.ts"
+  },
+  "ALL /api/admin/listicles/*": {
+    "effect": "none",
+    "reason": "Sets response headers on the listicle admin API (src/admin/listicles/router.ts:67)."
+  },
+  "POST /api/admin/listicles/analytics/rebuild-range": {
+    "effect": "none",
+    "reason": "Rebuilds reporting mirrors for the requested dates (src/admin/listicles/analytics-admin-handlers.ts:57)."
+  },
+  "POST /api/admin/listicles/articles": {
+    "effect": "none",
+    "reason": "Creates a draft listicle and its control version (src/admin/listicles/articles-handlers.ts:226)."
+  },
+  "DELETE /api/admin/listicles/articles/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "PATCH /api/admin/listicles/articles/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/articles/:id/experiments": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/articles/:id/publish": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/experiments/:id/start": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/experiments/:id/stop": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/media-platforms": {
+    "effect": "none",
+    "reason": "Creates a revenue postback destination (src/admin/listicles/media-platforms-handlers.ts:146)."
+  },
+  "PATCH /api/admin/listicles/media-platforms/:id": {
+    "effect": "none",
+    "reason": "Edits revenue postback dispatch settings (src/admin/listicles/media-platforms-handlers.ts:227)."
+  },
+  "POST /api/admin/listicles/offers": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "DELETE /api/admin/listicles/offers/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "PATCH /api/admin/listicles/offers/:id": {
+    "effect": "none",
+    "reason": "Updates offer metadata used at click time. Shell links retain the same offer ID (src/admin/listicles/offers-handlers.ts:353)."
+  },
+  "POST /api/admin/listicles/pages/:id/validate": {
+    "effect": "none",
+    "reason": "Returns validation results for the proposed page (src/admin/listicles/versions-handlers.ts:542)."
+  },
+  "POST /api/admin/listicles/sections": {
+    "effect": "none",
+    "reason": "Adds a section to the library for later placement (src/admin/listicles/sections-handlers.ts:261)."
+  },
+  "DELETE /api/admin/listicles/sections/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "PATCH /api/admin/listicles/sections/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/sections/preview": {
+    "effect": "none",
+    "reason": "Returns rendered preview HTML to the editor (src/admin/listicles/sections-handlers.ts:357)."
+  },
+  "PUT /api/admin/listicles/versions/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/versions/:id/fork": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/versions/:id/new-revision": {
+    "effect": "purges",
+    "proof": "edge-purge-listicles.test.ts"
+  },
+  "POST /api/admin/listicles/versions/:id/preview": {
+    "effect": "none",
+    "reason": "Renders an editor preview from the version and proposed overrides (src/admin/listicles/version-preview.ts:745)."
+  },
+  "DELETE /api/admin/media/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "PUT /api/admin/media/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "POST /api/admin/media/upload": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "POST /api/admin/pages": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "DELETE /api/admin/pages/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "PATCH /api/admin/pages/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "PATCH /api/admin/settings": {
+    "effect": "purges",
+    "proof": "edge-purge-articles.test.ts"
+  },
+  "POST /api/admin/sites": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "DELETE /api/admin/sites/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "PATCH /api/admin/sites/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "POST /api/admin/sites/:id/provision/next": {
+    "effect": "purges",
+    "proof": "edge-purge-sites.test.ts"
+  },
+  "POST /api/admin/sites/:id/provision/resume": {
+    "effect": "purges",
+    "proof": "edge-route-sweep.test.ts"
+  },
+  "POST /api/admin/sites/:id/purge-cache": {
+    "effect": "purges",
+    "proof": "admin-purge-cache.test.ts"
+  },
+  "POST /api/admin/tags": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "DELETE /api/admin/tags/:id": {
+    "effect": "purges",
+    "proof": "edge-purge-taxonomy.test.ts"
+  },
+  "POST /api/admin/verticals": {
+    "effect": "none",
+    "reason": "Creates a vertical for future site or article assignments (src/admin/verticals-handlers.ts:269)."
+  },
+  "DELETE /api/admin/verticals/:id": {
+    "effect": "none",
+    "reason": "Deletes a vertical only when its site and article usage guard passes (src/admin/verticals-handlers.ts:360)."
+  },
+  "PATCH /api/admin/verticals/:id": {
+    "effect": "none",
+    "reason": "Edits the audience used for content generation (src/admin/verticals-handlers.ts:313)."
+  },
+  "POST /api/lst/track": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/analytics/listicle-track.ts:342)."
+  },
+  "POST /api/newsletter/subscribe": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/newsletter.ts:52)."
+  },
+  "POST /api/pb/:provider": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/public/listicle/postback.ts:285)."
+  },
+  "POST /api/track": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/analytics/router.ts:45)."
+  },
+  "ALL /assets/admin/conversions/*": {
+    "effect": "none",
+    "reason": "Checks Cloudflare Access for Conversions assets (src/admin/router.ts:30)."
+  },
+  "HEAD /assets/admin/conversions/:fileName": {
+    "effect": "none",
+    "reason": "Reads headers for a pinned Conversions admin asset (src/admin/conversions/router.ts:187)."
+  },
+  "ALL /assets/admin/reporting/*": {
+    "effect": "none",
+    "reason": "Checks Cloudflare Access for Reporting assets (src/admin/router.ts:31)."
+  },
+  "HEAD /assets/admin/reporting/:fileName": {
+    "effect": "none",
+    "reason": "Reads headers for a pinned Reporting admin asset (src/admin/conversions/router.ts:187)."
+  },
+  "ALL /lg": {
+    "effect": "none",
+    "reason": "Resolves the tenant for the quote entry route (src/public/leadgen/runtime-routes.ts:95)."
+  },
+  "ALL /lg/*": {
+    "effect": "none",
+    "reason": "Resolves the tenant for the quote runtime (src/public/leadgen/runtime-routes.ts:96)."
+  },
+  "POST /lg/auction": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1139)."
+  },
+  "POST /lg/ck": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1138)."
+  },
+  "POST /lg/pb/:provider": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1143)."
+  },
+  "POST /lg/track": {
+    "effect": "none",
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1140)."
+  },
+  "QUEUE worker.queue": {
+    "effect": "none",
+    "reason": "Generates starter text and images before the provisioning launch step activates the tenant and queues its purge (src/site-provisioning/steps.ts:2267, src/site-provisioning/steps.ts:2113)."
+  },
+  "SCHEDULED worker.scheduled": {
+    "effect": "purges",
+    "proof": "edge-fingerprint-cron.test.ts"
+  }
+}

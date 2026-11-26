@@ -23,6 +23,9 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { hostTag, mergeTags, siteTag } from "../edge/tags";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 
 interface VerticalRow {
   id: number;
@@ -152,16 +155,18 @@ export async function updateDomainHandler(
   const status = nextStatus.length > 0 ? nextStatus : existing.status;
   const kind = nextKind.length > 0 ? nextKind : existing.kind;
 
-  await c.env.DB.prepare(
-    "UPDATE domains SET status = ?, kind = ?, is_primary = ?, updated_at = unixepoch() WHERE id = ?",
+  const row = await c.env.DB.prepare(
+    "UPDATE domains SET status = ?, kind = ?, is_primary = ?, updated_at = unixepoch() WHERE id = ? " +
+      "RETURNING id, site_id, hostname, kind, is_primary, status, ssl_status, cf_route_id, attached_at, created_at, updated_at",
   )
     .bind(status, kind, nextIsPrimary, id)
-    .run();
-
-  const row = await c.env.DB.prepare(
-    "SELECT id, site_id, hostname, kind, is_primary, status, ssl_status, cf_route_id, attached_at, created_at, updated_at FROM domains WHERE id = ? LIMIT 1",
-  )
-    .bind(id)
     .first<DomainRow>();
+  if (row) {
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId: row.site_id,
+      tags: mergeTags([siteTag(row.site_id), hostTag(existing.hostname), hostTag(row.hostname)]),
+      reason: "domain.update",
+    });
+  }
   return c.json({ resource: row });
 }

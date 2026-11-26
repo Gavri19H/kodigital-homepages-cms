@@ -198,6 +198,11 @@ function renderSiteSelector(sites: ReadonlyArray<SiteOption>, selectedSiteId?: s
     </select>
     <small id="filter-site-hint" class="form-hint">Settings are scoped to the chosen site.</small>
   </div>
+  <div class="form-group" role="group" aria-labelledby="clear-site-cache-label">
+    <span id="clear-site-cache-label" class="form-label">Public page cache</span>
+    <button type="button" id="clear-site-cache" class="btn btn-secondary"${selectedSiteId ? "" : " disabled"}>Clear this site now</button>
+    <p id="clear-site-cache-status" class="form-status" role="status"></p>
+  </div>
 </div>`;
 }
 
@@ -540,6 +545,11 @@ const AD_PROVIDER_OPTIONS: ReadonlyArray<[string, string]> = [
   ["gam", "Google Ad Manager (GPT / AdX)"],
 ];
 
+const AD_LOAD_TIMING_OPTIONS: ReadonlyArray<[string, string]> = [
+  ["after_content", "After page content (faster)"],
+  ["legacy", "Old timing"],
+];
+
 // In-content slot anchor is an integer paragraph index (parseIntOr in ads.ts);
 // the reference's "after-paragraph-N" strings are mapped to the integer N.
 const AD_IN_CONTENT_POSITION_OPTIONS: ReadonlyArray<[string, string]> = [
@@ -587,6 +597,12 @@ function renderAdConfigCard(values: SettingsValueMap): string {
       AD_PROVIDER_OPTIONS,
       providerValue,
       "AdSense needs a publisher ID; Google Ad Manager needs a network code. Ads render only when the selected provider is configured.",
+    ) +
+    renderAdSelect(
+      "ads_load_timing",
+      "Ad load timing",
+      AD_LOAD_TIMING_OPTIONS,
+      settingValue(values, "ads_load_timing") === "legacy" ? "legacy" : "after_content",
     ) +
     renderTextField(
       "adsense_publisher_id",
@@ -1235,8 +1251,39 @@ export const SETTINGS_SCRIPT = `
     if (msg) { status.appendChild(document.createTextNode(msg)); }
   }
   function setError(msg) { if (errEl) { errEl.hidden = !msg; errEl.textContent = msg || ''; } }
+  var clearButton = document.getElementById('clear-site-cache');
+  var clearStatus = document.getElementById('clear-site-cache-status');
+  if (clearButton && clearStatus) {
+    clearButton.addEventListener('click', function () {
+      var siteId = hidden.value;
+      if (!siteId || clearButton.disabled) { return; }
+      clearButton.disabled = true;
+      clearStatus.textContent = 'Requesting a cache clear…';
+      function finish(message) {
+        if (hidden.value === siteId) {
+          clearStatus.textContent = message;
+          clearButton.disabled = false;
+        }
+      }
+      fetch('/api/admin/sites/' + encodeURIComponent(siteId) + '/purge-cache', {
+        method: 'POST', credentials: 'same-origin', redirect: 'error'
+      }).then(function (r) {
+        if (!r.ok) { throw new Error(); }
+        return r.json();
+      }).then(function (data) {
+        if (!data || !data.resource || !data.resource.purge_id) { throw new Error(); }
+        finish('Cache clear requested for this site.');
+      }).catch(function () {
+        finish('Could not request a cache clear. Please try again.');
+      });
+    });
+  }
   filter.addEventListener('change', function () {
     hidden.value = filter.value;
+    if (clearButton && clearStatus) {
+      clearButton.disabled = !filter.value;
+      clearStatus.textContent = '';
+    }
     setStatus('');
     setError('');
     if (filter.value) {
@@ -1263,7 +1310,7 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','audience','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','favicon_media_id','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
+    var keys = ['site_name','audience','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','favicon_media_id','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','ads_load_timing','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);

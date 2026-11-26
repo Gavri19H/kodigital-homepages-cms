@@ -1,0 +1,179 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import publicRouter from "../src/public/router";
+import { renderLayout } from "../src/public/templates/layout";
+import { parseHtml, type MiniNode } from "./helpers/mini-dom";
+import { addSite, createDb, env, type SqliteDb } from "./helpers/x06-a2-sqlite";
+
+const hostname = "journal.example";
+const origin = `https://${hostname}`;
+const outside = "https://photos.example/media/lead.jpg?edition=1&view=wide";
+const local = "/media/lead.jpg?edition=1&view=wide";
+const trailingComma = "/media/lead.jpg?palette=gold,";
+const highPriorityImages = 'img[fetchpriority="high"], link[rel="preload"][as="image"][fetchpriority="high"]';
+
+function onlyHighPriorityImage(doc: MiniNode): MiniNode {
+  const hints = doc.querySelectorAll(highPriorityImages);
+  expect(hints).toHaveLength(1);
+  return hints[0]!;
+}
+
+function expectHomeImagePriorities(doc: MiniNode, lcp?: MiniNode): void {
+  const logo = doc.querySelector("header img");
+  for (const img of doc.querySelectorAll("img")) {
+    const src = img.getAttribute("src") ?? "home image";
+    expect(img.getAttribute("fetchpriority"), src).toBe(img === lcp ? "high" : "low");
+    expect(img.getAttribute("loading"), src).toBe(img === lcp || img === logo ? "eager" : "lazy");
+  }
+}
+
+describe("image priority on the public routes", () => {
+  let sqlite: SqliteDb;
+
+  beforeEach(() => {
+    sqlite = createDb();
+    addSite(sqlite, "journal", "Journal", "travel");
+    sqlite.prepare("INSERT INTO domains (site_id, hostname, status) VALUES ('journal', ?, 'active')").run(hostname);
+    sqlite.prepare(`INSERT INTO site_settings (site_id, key, value) VALUES
+      ('journal', 'logo_media_id', 'logo.png'), ('journal', 'hero_image_media_id', 'brand/banner.jpg')`).run();
+    sqlite.prepare("INSERT INTO categories (id, slug, name) VALUES (701, 'guides', 'Guides')").run();
+    sqlite.prepare("INSERT INTO tags (id, site_id, slug, name) VALUES (701, 'journal', 'guides', 'Guides')").run();
+    const media = sqlite.prepare(`INSERT INTO media (id, site_id, filename, storage_key, mime_type, alt_text)
+      VALUES (?, 'journal', ?, ?, 'image/jpeg', ?)`);
+    const article = sqlite.prepare(`INSERT INTO articles
+      (id, site_id, slug, title, content_json, category_id, status, published_at, featured_image_id)
+      VALUES (?, 'journal', ?, ?, '{}', 701, 'published', ?, ?)`);
+    const tag = sqlite.prepare("INSERT INTO article_tags (article_id, tag_id) VALUES (?, 701)");
+    for (const [id, slug] of [[3, "lead"], [2, "second"], [1, "third"]] as const) {
+      media.run(id, `${slug}.jpg`, `${slug}.jpg`, slug);
+      article.run(id, slug, slug, 1700000000 + id, id);
+      tag.run(id);
+    }
+  });
+  afterEach(() => sqlite.close());
+
+  async function visit(path: string): Promise<MiniNode> {
+    const response = await publicRouter.request(origin + path, {}, { ...env(sqlite), EDGE_INNER: "1" });
+    expect(response.status).toBe(200);
+    return parseHtml(await response.text());
+  }
+
+  it.each([
+    [local, local, local],
+    [trailingComma, trailingComma, trailingComma],
+    ["/media/field notes (1).jpg", "/media/field%20notes%20(1).jpg",
+      "/media/field%20notes%20\\28 1\\29 .jpg"],
+  ])("preloads exactly the CSS hero for each viewport when the source is %s", async (source, path, cssPath) => {
+    sqlite.prepare("UPDATE media SET storage_key = ? WHERE id = 3").run(source);
+    const doc = await visit("/");
+    const preloads = doc.querySelectorAll('head link[rel="preload"][as="image"]');
+    expect(doc.querySelectorAll(highPriorityImages)).toEqual(preloads);
+    expect(preloads.map(link => link.getAttribute("media"))).toEqual([
+      "(max-width:480px)", "(480px < width <= 1024px)", "(width > 1024px)",
+    ]);
+    const rules = doc.querySelector(".hero style")!.textContent;
+    const background = doc.querySelector(".hero-bg")!.getAttribute("style");
+    for (const [index, width] of [640, 1280, 1600].entries()) {
+      const prefix = `/cdn-cgi/image/width=${width},quality=78,format=auto`;
+      const link = preloads[index]!;
+      if (source === trailingComma) {
+        expect(link.getAttribute("href")).toBe(prefix + path);
+        expect(link.hasAttribute("imagesrcset")).toBe(false);
+      } else {
+        expect(link.getAttribute("imagesrcset")).toBe(`${prefix}${path} ${width}w`);
+        expect(link.getAttribute("imagesizes")).toBe("100vw");
+        expect(link.hasAttribute("href")).toBe(false);
+      }
+      const url = `url(${prefix}${cssPath})`;
+      if (width === 1600) {
+        expect(background).toContain(`var(--hero-photo,${url})`);
+      } else {
+        expect(rules).toContain(`@media ${link.getAttribute("media")}{.hero-bg{--hero-photo:${url}}}`);
+      }
+    }
+  });
+
+  it("preloads the original URL of an external CSS hero", async () => {
+    sqlite.prepare("UPDATE media SET storage_key = ? WHERE id = 3").run(outside);
+    const doc = await visit("/");
+    const preload = onlyHighPriorityImage(doc);
+    expect(preload).toBe(doc.querySelector('head link[rel="preload"][as="image"]'));
+    expect(preload.getAttribute("href")).toBe(outside);
+    expect(preload.hasAttribute("imagesrcset")).toBe(false);
+    expect(doc.querySelector(".hero style")).toBeNull();
+    expect(doc.querySelector(".hero-bg")?.getAttribute("style")).toContain(`url(${outside})`);
+    expectHomeImagePriorities(doc);
+  });
+
+  it("gives every home image low priority when the CSS hero is preloaded", async () => {
+    sqlite.prepare("UPDATE articles SET is_featured = 1 WHERE slug IN ('lead', 'second')").run();
+    sqlite.prepare(`INSERT INTO articles
+      (site_id, slug, title, content_json, status, published_at, featured_image_id, is_trending)
+      VALUES ('journal', 'trending', 'Trending', '{}', 'published', 1700000000, 1, 1)`).run();
+    const doc = await visit("/");
+    for (const selector of [
+      "header img", ".cat-chip img", ".featured img", ".picks-hero img", ".story-row img",
+      ".trending-img img", ".grid-4 img", ".home-grid--latest img", "footer img",
+    ]) {
+      expect(doc.querySelector(selector), selector).not.toBeNull();
+    }
+    expectHomeImagePriorities(doc);
+  });
+
+  it("gives the first pictured Editor's Pick priority on a gradient-only home", async () => {
+    sqlite.prepare("UPDATE articles SET featured_image_id = NULL WHERE slug = 'lead'").run();
+    const doc = await visit("/");
+    expect(doc.querySelector(".hero-bg")?.hasAttribute("style")).toBe(false);
+    expect(doc.querySelector(".hero style")).toBeNull();
+    expect(doc.querySelector('link[rel="preload"][as="image"]')).toBeNull();
+    const pick = onlyHighPriorityImage(doc);
+    expect(pick).toBe(doc.querySelector(".picks-grid img"));
+    expect(pick.getAttribute("loading")).toBe("eager");
+    expectHomeImagePriorities(doc, pick);
+  });
+
+  it.each(["/category/guides", "/tag/guides"])("%s prioritizes the first card image", async (path) => {
+    const doc = await visit(path);
+    const cards = doc.querySelectorAll(".card-img img");
+    expect(cards.map((img) => img.getAttribute("alt"))).toEqual(["lead", "second", "third"]);
+    expect(onlyHighPriorityImage(doc)).toBe(cards[0]);
+    expect(cards.map((img) => img.getAttribute("loading"))).toEqual(["eager", "lazy", "lazy"]);
+    expect(cards.map((img) => img.getAttribute("fetchpriority"))).toEqual(["high", null, null]);
+  });
+
+  it.each(["/category/guides", "/tag/guides"])("%s keeps later cards lazy when the first card has a placeholder", async (path) => {
+    sqlite.prepare("UPDATE articles SET featured_image_id = NULL WHERE slug = 'lead'").run();
+    const doc = await visit(path);
+    expect(doc.querySelector(".card-img .ph")).not.toBeNull();
+    const images = doc.querySelectorAll(".card-img img");
+    expect(images.map((img) => img.getAttribute("alt"))).toEqual(["second", "third"]);
+    expect(doc.querySelector('[fetchpriority="high"]')).toBeNull();
+    expect(images.map((img) => img.getAttribute("loading"))).toEqual(["lazy", "lazy"]);
+    expect(images.map((img) => img.getAttribute("fetchpriority"))).toEqual([null, null]);
+  });
+
+  it("gives only the article hero high priority", async () => {
+    const doc = await visit("/article/lead");
+    const hero = onlyHighPriorityImage(doc);
+    expect(hero).toBe(doc.querySelector(".article-hero-img img"));
+    expect(hero.getAttribute("loading")).toBe("eager");
+  });
+});
+
+describe("Open Graph image URL", () => {
+  const resized = `${origin}/cdn-cgi/image/width=1200,fit=scale-down,format=auto${local}`;
+  it.each([
+    [local, resized],
+    [`https://JOURNAL.example:443${local}`, resized],
+    [`//${hostname}${local}`, resized],
+    [outside, outside],
+    [`//photos.example${local}`, `//photos.example${local}`],
+    [`http://${hostname}${local}`, `http://${hostname}${local}`],
+    [`${origin}:8443${local}`, `${origin}:8443${local}`],
+    ["/assets/photo.jpg", `${origin}/assets/photo.jpg`],
+  ])("selects the share URL for %s", (image, expected) => {
+    const doc = parseHtml(renderLayout({
+      site: { hostname, name: "Journal" }, meta: { title: "Guides", ogImage: image }, body: "",
+    }));
+    expect(doc.querySelector('meta[property="og:image"]')?.getAttribute("content")).toBe(expected);
+  });
+});

@@ -157,7 +157,7 @@ describe("public-templates-components", () => {
       categoryName: "World",
     });
     expect(html).toContain('<a class="card" href="/article/example"');
-    expect(html).toContain('src="/media/example.jpg"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/example.jpg"');
     expect(html).toContain('loading="lazy"');
     expect(html).toContain("Example image");
     // RESCUE-4 design card-foot byline = "{categoryName} · {publishedAt}"
@@ -289,7 +289,7 @@ describe("public-templates-components", () => {
     expect(html.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     expect(html).not.toBe(RAW_PAGE_BODY);
     // renderLayout owns the stylesheet + brand-token override (db-fed shell).
-    expect(html).toContain('href="/assets/public.css?v=');
+    expect(html).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(html).toContain('<style data-source="brand_tokens">');
     expect(html).toContain("--tw-brand: #0f8aa6");
     // Header + footer regions present (banner + contentinfo).
@@ -354,7 +354,7 @@ describe("public-templates-components", () => {
     // Design shell, not the rescue-2 bare zero-style document.
     expect(html.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     // renderLayout owns the stylesheet + brand-token override (db-fed shell).
-    expect(html).toContain('href="/assets/public.css?v=');
+    expect(html).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(html).toContain('<style data-source="brand_tokens">');
     expect(html).toContain("--tw-brand: #0f8aa6");
     // Header + footer regions present (banner + contentinfo).

@@ -24,6 +24,7 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
+import { parseImageSize } from "./image-size";
 
 const FALLBACK_CONTENT_TYPE = "application/octet-stream";
 
@@ -88,6 +89,7 @@ upload.post("/admin/media", async (c) => {
   // A sanitized SVG stores its RE-SERIALIZED bytes (never the raw upload);
   // size_bytes below reflects that sanitized length, not the original.
   const buf = svgOutcome.isSvg ? svgOutcome.bytes : await file.arrayBuffer();
+  const dimensions = parseImageSize(buf);
 
   await c.env.MEDIA.put(storageKey, buf, {
     httpMetadata: { contentType: mimeType },
@@ -95,9 +97,9 @@ upload.post("/admin/media", async (c) => {
 
   const row = await c.env.DB
     .prepare(
-      "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+      "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-    .bind(file.name, storageKey, mimeType, buf.byteLength, altText, folder)
+    .bind(file.name, storageKey, mimeType, buf.byteLength, altText, folder, dimensions?.width ?? null, dimensions?.height ?? null)
     .first<{ id: number }>();
 
   if (!row) {

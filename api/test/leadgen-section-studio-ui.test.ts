@@ -3986,8 +3986,8 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
 
     const rendered = renderComponent(node as unknown as LeadgenComponentNode, defaultFunnelDesign);
-    expect(rendered).toContain('src="/media/media_1" alt="Acme"'); // /media/ prefix: see leadgen-card-image-media-url
-    expect(rendered).toContain('src="/media/media_2" alt=""');
+    expect(rendered).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/media_1" alt="Acme"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(rendered).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/media_2" alt=""');
     expect(probe.run("linesValue('logos', findRef('q_logos').node.props.logos)")).toBe("media_1|Acme\nmedia_2");
     // an alt-less line without mediaId is dropped (mediaId required)
     probe.sandbox["__badLogos"] = propInput("logos", "lines", "|orphan alt", "textarea");
