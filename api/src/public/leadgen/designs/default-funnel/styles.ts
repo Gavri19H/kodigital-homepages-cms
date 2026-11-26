@@ -2409,6 +2409,14 @@ export function funnelChromeCss(
     rule(`${scope} .lg-no-match-text`, { margin: "0", "font-size": "1.125rem", color: headline.color }),
     rule(`${scope} .lg-no-match-subtext`, { margin: "0", "font-size": "0.875rem", color: subheadline.color }),
     rule(`${scope}[data-lg-auction="unfilled"] .lg-no-match`, { display: "flex" }),
+    // Reserve the viewport at the last tap so a delayed auction reply keeps
+    // the logos and footer below the fold. Older browsers use the vh fallback.
+    rule(
+      `${scope}[data-lg-auction="pending"] .lg-buffering,` +
+      `${scope}[data-lg-complete="1"] [data-lg-banners],` +
+      `${scope}[data-lg-auction="unfilled"] .lg-no-match`,
+      { "min-height": "100vh;min-height:100svh" },
+    ),
     // PM follow-up (2026-10-02): the results page is the end of the funnel —
     // the auction runs once per visit (engine finalize), so Back from it led to
     // a question page with the old results still under it and nothing to

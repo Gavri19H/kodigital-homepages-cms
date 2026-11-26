@@ -1281,9 +1281,9 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     // sections server-render, not just the visible first one).
     expect(html).toContain('data-lg-choice="acme"');
     // the [data-lg-banners] auction mount rides after ALL the sections, hidden.
-    const bannersAt = html.indexOf("data-lg-banners");
+    const bannersAt = html.indexOf('<div class="lg-banners" data-lg-banners');
     expect(bannersAt).toBeGreaterThan(html.indexOf('data-lg-index="2"'));
-    expect(html.slice(bannersAt - 60, bannersAt + 60)).toContain("hidden");
+    expect(html.slice(bannersAt, html.indexOf(">", bannersAt))).toMatch(/\shidden\b/);
   });
 
   it("bakes #lg-config = the SAME LeadgenPublicConfig JSON /lg/config serves (§3.2b), runtime tag (§3.2c), no pre-set ready", async () => {

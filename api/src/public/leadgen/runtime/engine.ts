@@ -49,6 +49,7 @@ import {
 import { formatKindFor, normalizeUsPhone, validateSection } from "./validation";
 import { LgBeaconClient, ulidLike, type LgSendFn, type LgEnvelopeBase } from "./events";
 import * as render from "./render";
+import { INPUT_SEL } from "./render";
 import { wireMapsFields } from "./maps";
 import {
   observeImpressions,
@@ -58,7 +59,7 @@ import {
 } from "./auction-client";
 import { lgSearch, vehicleNames, vehicleQs, vehicleScan } from "./vehicle";
 
-export const LG_ENGINE_VERSION = "17"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
+export const LG_ENGINE_VERSION = "18"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
 const LG_ATTEMPT_URL = "/lg/attempt";
 const SESSION_COOKIE = "ko_sid";
@@ -529,7 +530,6 @@ function attrNum(el: Element, name: string, fallback: number): number {
   return Number(el.getAttribute(name) || fallback);
 }
 
-const INPUT_SEL = "[data-lg-input]";
 const ARIA_NOW = "aria-valuenow";
 const SEL_DIAL = ".lg-range-radial-outer";
 
@@ -1007,7 +1007,7 @@ export class LgEngine {
 
   private sectionConfigFor(el: Element | null): LgSectionConfig | null {
     if (el === null) return null;
-    const sectionEl = el.closest("[data-lg-section]");
+    const sectionEl = el.closest(render.SECTION_SEL);
     if (sectionEl === null) return this.currentSection();
     const id = sectionEl.getAttribute("data-lg-section-id") || "";
     const byId = this.config.sections.find((s) => s.section_public_id === id);
@@ -1126,7 +1126,7 @@ export class LgEngine {
     this.root.addEventListener("click", (raw) => {
       const target = raw.target;
       if (!(target instanceof Element)) return;
-      const choice = target.closest("[data-lg-choice]");
+      const choice = target.closest(render.CHOICE_SEL);
       if (choice !== null && this.root.contains(choice)) {
         this.handleChoiceActivation(choice);
         return;
@@ -1278,7 +1278,7 @@ export class LgEngine {
         if (wrapped instanceof Element) el = wrapped;
       }
       if (el === null) continue;
-      const choice = el.closest("[data-lg-choice]");
+      const choice = el.closest(render.CHOICE_SEL);
       if (choice !== null) this.handleChoiceActivation(choice);
       else if (el.closest("[data-lg-continue]") !== null) this.handleContinue(el);
       else if (el.closest("[data-lg-other-trigger]") !== null) render.openOtherPanel(el);
@@ -1808,7 +1808,7 @@ export class LgEngine {
     if (other) render.applySelectionClasses(questionEl as Element, value);
     // Editing clears the field's stale error immediately — the INPUT's own
     // section (same-screen pages: not necessarily this.si's anchor section).
-    const sectionEl = input.closest("[data-lg-section]");
+    const sectionEl = input.closest(render.SECTION_SEL);
     if (sectionEl !== null) render.setFieldError(sectionEl, internalField, null);
     this.afterAnswerMutation();
 
@@ -1963,6 +1963,7 @@ export class LgEngine {
     }
 
     const shownEls = render.showPageSections(this.root, visibleInPage);
+    const [first] = shownEls;
     for (let k = 0; k < visibleInPage.length; k++) {
       const i = visibleInPage[k];
       const section = i !== undefined ? this.config.sections[i] : undefined;
@@ -2024,7 +2025,10 @@ export class LgEngine {
       this.root,
       this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
     );
-    if (focus && shownEls[0] !== undefined) render.focusSection(shownEls[0]);
+    if (focus && first && first.isConnected) {
+      // Let the new step paint before focus can force layout.
+      requestAnimationFrame(() => setTimeout(render.focusSection, 0, first));
+    }
     // F18: {make}/{year} in the headlines (vehicle.ts vehicleNames).
     this.vNames();
     this.updateProgressUi();
