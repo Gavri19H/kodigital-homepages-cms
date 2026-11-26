@@ -100,6 +100,10 @@ class FakeElement {
     return this.closest('[id="lg-funnel-root"]') !== null;
   }
 
+  get tagName(): string {
+    return this.tag.toUpperCase();
+  }
+
   appendChild<T extends FakeElement>(child: T): T {
     child.parentElement = this;
     this.children.push(child);
@@ -495,20 +499,42 @@ function activeDotIndexes(dots: readonly FakeElement[]): number[] {
 }
 
 describe("focus after a step tap", () => {
-  async function tapIntoSecondSection() {
+  async function prepareSecondSection(input?: FakeElement) {
     vi.useFakeTimers();
     const h = await bootFrameEngine({ preview: true, historyFallback: "false" });
     const section = h.continues[1]!.parentElement!;
     const choice = section.appendChild(new FakeElement("button", { "data-lg-choice": "yes" }));
-    const input = section.appendChild(new FakeInputElement({ "data-lg-input": "" }));
-    const focus = vi.spyOn(input, "focus");
-    h.root.dispatch("click", h.continues[0]!);
-    expect(h.engineApi().getState().section_index).toBe(1);
-    return { h, section, choice, focus };
+    const focus = vi.spyOn(input ? section.appendChild(input) : choice, "focus");
+    const tap = () => {
+      h.root.dispatch("click", h.continues[0]!);
+      expect(h.engineApi().getState().section_index).toBe(1);
+    };
+    return { h, section, choice, focus, tap };
   }
 
-  it("focuses the new section's first input after the frame and timer", async () => {
-    const { h, choice, focus } = await tapIntoSecondSection();
+  function stepInput(type: string): FakeInputElement {
+    const input = new FakeInputElement({ "data-lg-input": "" });
+    input.type = type;
+    return input;
+  }
+
+  it.each(["text", "email", "tel", "number", "search", "url", "password", "textarea"])(
+    "focuses the new %s control inside the tap that reveals it",
+    async type => {
+      const input = type === "textarea" ? new FakeElement("textarea", { "data-lg-input": "" }) : stepInput(type);
+      const { h, choice, focus, tap } = await prepareSecondSection(input);
+      tap();
+      expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+      h.runFrame();
+      vi.advanceTimersByTime(0);
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(choice.focusedCount).toBe(0);
+    },
+  );
+
+  it.each(["choice", "range"])("focuses the new %s after the frame and timer", async type => {
+    const { h, choice, focus, tap } = await prepareSecondSection(type === "range" ? stepInput(type) : undefined);
+    tap();
     expect(focus).not.toHaveBeenCalled();
     vi.advanceTimersByTime(0);
     expect(focus).not.toHaveBeenCalled();
@@ -516,11 +542,12 @@ describe("focus after a step tap", () => {
     expect(focus).not.toHaveBeenCalled();
     vi.advanceTimersByTime(0);
     expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
-    expect(choice.focusedCount).toBe(0);
+    expect(choice.focusedCount).toBe(type === "choice" ? 1 : 0);
   });
 
   it("focuses only the current section when two taps arrive before the frame", async () => {
-    const { h, section, focus } = await tapIntoSecondSection();
+    const { h, section, focus, tap } = await prepareSecondSection();
+    tap();
     const third = h.continues[2]!.parentElement!;
     const choice = third.appendChild(new FakeElement("button", { "data-lg-choice": "yes" }));
     h.root.dispatch("click", h.continues[1]!);
@@ -532,7 +559,8 @@ describe("focus after a step tap", () => {
   });
 
   it.each(["detached", "auction pending"])("skips a section that becomes %s before the timer", async state => {
-    const { h, section, focus } = await tapIntoSecondSection();
+    const { h, section, focus, tap } = await prepareSecondSection();
+    tap();
     h.runFrame();
     if (state === "detached") {
       const parent = section.parentElement!;

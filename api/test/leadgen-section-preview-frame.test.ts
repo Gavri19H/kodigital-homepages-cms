@@ -1152,7 +1152,8 @@ const NO_MATCH_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="unfilled"] .lg-no-match{display:flex}` +
     `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="pending"] .lg-buffering,` +
     `${DEFAULT_FUNNEL_SCOPE}[data-lg-complete="1"] [data-lg-banners],` +
-    `${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="unfilled"] .lg-no-match{min-height:100vh;min-height:100svh}`,
+    `${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="unfilled"] .lg-no-match,` +
+    `${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="error"] .lg-runtime-notice{min-height:100vh;min-height:100svh}`,
   // PM follow-up 2026-10-02: no Back on the results page
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-complete="1"] .lg-back[data-lg-back]{display:none}`,
 ];

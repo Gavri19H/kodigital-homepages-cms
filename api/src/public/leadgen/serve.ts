@@ -542,6 +542,8 @@ export function metaMatchFieldMap(resolved: ResolvedActivatedFunnel): Record<str
 //     city → a-z only; phone → digits, leading zeros / "00" stripped, a
 //     10-digit number gets the leading 1; ZIP (fix round 2, review N7) → the
 //     first 5 of its digits only, fewer than 5 digits → omitted;
+//   * when cards appear, init each distinct offer pixel with the visitor's
+//     answers, including the completed attempt's snapshot;
 //   * offer click (click + middle-click auxclick, EVERY click — R1): on an
 //     <a data-lg-px> card (banner.ts) it mints 'lgc_' + 20 random letters/digits,
 //     appends it to the /lg/lc link as `eid` BEFORE the browser navigates (the
@@ -575,6 +577,7 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "function base(){var u={},s=sid();if(s){u.external_id=s;}return u;}" +
     "function user(){var u=base(),k;for(k in A){if(H.call(A,k)){u[k]=A[k];}}return u;}" +
     "function init(p,u){if(I[p]){return;}I[p]=1;w.fbq('init',p,u);}" +
+    "function cardPixel(a){var p=a.getAttribute('data-lg-px')||'';return /^[0-9]{5,20}$/.test(p)?p:'';}" +
     "function ev(p,n,c,id){try{w.fbq('trackSingle',p,n,c,{eventID:id});}catch(x){}}" +
     "function once(k){if(M[k]){return false;}M[k]=1;try{if(w.sessionStorage.getItem(k)){return false;}w.sessionStorage.setItem(k,'1');}catch(x){}return true;}" +
     "var LR=null;try{LR=new RegExp('[^\\\\p{L}]','gu');}catch(x){}" +
@@ -600,10 +603,12 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "w.__lgOnEvent=function(e){var t=e&&e.event_type,att=(e&&e.funnel_attempt_id)||'';" +
     "if(t==='answer_click'||t==='answer_change'){if(e.internal_field){take(e.internal_field,e.answer_value_normalized);}" +
     "if(C.p&&once('lgpx:lead:'+att)){ev(C.p,'Lead',{},'lgl_'+rid());}}" +
-    "if(t==='quote_complete'){fromStore(att);if(C.p&&d.querySelector('a.lg-banner')&&once('lgpx:cart:'+att)){ev(C.p,'AddToCart',{},'lga_'+rid());}}};" +
+    "if(t==='quote_complete'){fromStore(att);if(C.p&&d.querySelector('a.lg-banner')&&once('lgpx:cart:'+att)){ev(C.p,'AddToCart',{},'lga_'+rid());}" +
+    "var cards=d.querySelectorAll('a.lg-banner[data-lg-px]'),i,p;for(i=0;i<cards.length;i++){p=cardPixel(cards[i]);" +
+    "if(p&&!I[p]){try{init(p,user());}catch(x){delete I[p];}}}}};" +
     "function click(e){if(e.type==='auxclick'&&e.button!==1){return;}" +
     "var a=e.target&&e.target.closest?e.target.closest('a[data-lg-px]'):null;if(!a){return;}" +
-    "var p=a.getAttribute('data-lg-px')||'';if(!/^[0-9]{5,20}$/.test(p)){return;}" +
+    "var p=cardPixel(a);if(!p){return;}" +
     "var id='lgc_'+rid(),h=(a.getAttribute('href')||'').replace(/([?&])eid=[^&#]*&?/g,'$1').replace(/[?&]$/,'');" +
     "a.setAttribute('href',h+(h.indexOf('?')<0?'?':'&')+'eid='+id);" +
     "try{if(!I[p]){init(p,user());}" +

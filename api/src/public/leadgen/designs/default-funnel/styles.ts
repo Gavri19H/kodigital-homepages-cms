@@ -2414,7 +2414,8 @@ export function funnelChromeCss(
     rule(
       `${scope}[data-lg-auction="pending"] .lg-buffering,` +
       `${scope}[data-lg-complete="1"] [data-lg-banners],` +
-      `${scope}[data-lg-auction="unfilled"] .lg-no-match`,
+      `${scope}[data-lg-auction="unfilled"] .lg-no-match,` +
+      `${scope}[data-lg-auction="error"] .lg-runtime-notice`,
       { "min-height": "100vh;min-height:100svh" },
     ),
     // PM follow-up (2026-10-02): the results page is the end of the funnel —

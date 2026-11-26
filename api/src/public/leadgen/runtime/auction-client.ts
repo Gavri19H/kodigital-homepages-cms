@@ -58,6 +58,10 @@ export type LgAuctionOutcome =
   | { ok: true; response: LgAuctionResponse }
   | { ok: false; kind: "network" | "http" | "tampered" | "malformed"; status?: number };
 
+function stringOrEmpty(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function coerceResponse(raw: unknown): LgAuctionResponse | null {
   if (raw === null || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -69,18 +73,18 @@ function coerceResponse(raw: unknown): LgAuctionResponse | null {
     if (i["event_type"] !== "carrier_impression" && i["event_type"] !== "offer_impression") continue;
     impressions.push({
       event_type: i["event_type"],
-      offer_id: typeof i["offer_id"] === "string" ? i["offer_id"] : "",
-      placement_id: typeof i["placement_id"] === "string" ? i["placement_id"] : "",
+      offer_id: stringOrEmpty(i["offer_id"]),
+      placement_id: stringOrEmpty(i["placement_id"]),
       ...(typeof i["carrier_key"] === "string" ? { carrier_key: i["carrier_key"] } : {}),
       slot_index: typeof i["slot_index"] === "number" ? i["slot_index"] : 0,
-      auction_result_id: typeof i["auction_result_id"] === "string" ? i["auction_result_id"] : "",
-      banner_render_id: typeof i["banner_render_id"] === "string" ? i["banner_render_id"] : "",
+      auction_result_id: stringOrEmpty(i["auction_result_id"]),
+      banner_render_id: stringOrEmpty(i["banner_render_id"]),
     });
   }
   return {
-    banners_html: typeof r["banners_html"] === "string" ? r["banners_html"] : "",
-    auction_result_id: typeof r["auction_result_id"] === "string" ? r["auction_result_id"] : "",
-    banner_render_id: typeof r["banner_render_id"] === "string" ? r["banner_render_id"] : "",
+    banners_html: stringOrEmpty(r["banners_html"]),
+    auction_result_id: stringOrEmpty(r["auction_result_id"]),
+    banner_render_id: stringOrEmpty(r["banner_render_id"]),
     impressions,
     ...(r["unfilled"] === true ? { unfilled: true as const } : {}),
     ...(typeof r["go"] === "string" ? { go: r["go"] } : {}),

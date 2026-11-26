@@ -45,7 +45,8 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
-// v18 moves section focus past the step's paint. The v17 digest was fdff794a…
+// v18 focuses text entry during the tap and defers other controls until after paint.
+// The prior unreleased v18 digest was 5daee0d1…, and v17 was fdff794a…
 // v17 2026-11-25: new URL for the restore-before-paint engine (v16 bytes had been cached immutably on staging); last v16 digest 4e6e584d…
 // v17 rolls the immutable URL for the returning-visitor restore fix. Staging
 // already cached v16 with digest ad342193… before that fix.
@@ -72,7 +73,7 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "5daee0d1da4e84e81deeeb1743e7f5434ea867e476808511322ab5e19eac7a0f";
+const RUNTIME_BUNDLE_SHA256 = "b008e48e9e11bc0d8ffeda9731b2a8c04f1b12fd79244d8f5d16157ba6c30fda";
 const RUNTIME_BUNDLE_VERSION = 18;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {

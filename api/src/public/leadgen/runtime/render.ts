@@ -366,10 +366,7 @@ export function hideRuntimeNotice(container: Element): void {
   if (notice !== null) toggleHidden(notice, false);
 }
 
-// Container-aware focus (§3.2 render row): focus the first interactive
-// element INSIDE the newly-shown section without scroll-jacking.
-export function focusSection(sectionEl: Element): void {
-  const target = sectionEl.querySelector(INPUT_SEL) || sectionEl.querySelector(CHOICE_SEL);
+function focusControl(target: Element | null): void {
   // A second tap can replace the section, and a pending auction hides it via CSS.
   if (target instanceof HTMLElement && target.isConnected && !target.closest('[hidden],[data-lg-auction="pending"]')) {
     try {
@@ -377,6 +374,21 @@ export function focusSection(sectionEl: Element): void {
     } catch {
       /* focus best-effort */
     }
+  }
+}
+
+// iOS needs focus inside the tap to open a keyboard. Other controls can wait
+// for paint. Resolve the deferred target again in case the section changed.
+export function focusSection(sectionEl: Element): void {
+  const firstControl = () => sectionEl.querySelector(INPUT_SEL) || sectionEl.querySelector(CHOICE_SEL);
+  const target = firstControl();
+  if (
+    target?.tagName === "TEXTAREA" ||
+    (target instanceof HTMLInputElement && /^(text|email|tel|number|search|url|password)$/.test(target.type))
+  ) {
+    focusControl(target);
+  } else {
+    requestAnimationFrame(() => setTimeout(() => focusControl(firstControl()), 0));
   }
 }
 

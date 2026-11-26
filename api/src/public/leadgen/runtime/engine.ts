@@ -2025,10 +2025,7 @@ export class LgEngine {
       this.root,
       this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
     );
-    if (focus && first && first.isConnected) {
-      // Let the new step paint before focus can force layout.
-      requestAnimationFrame(() => setTimeout(render.focusSection, 0, first));
-    }
+    if (focus && first && first.isConnected) render.focusSection(first);
     // F18: {make}/{year} in the headlines (vehicle.ts vehicleNames).
     this.vNames();
     this.updateProgressUi();
