@@ -11,7 +11,8 @@ const minute = 60_000;
 const hour = 60 * minute;
 const day = 24 * hour;
 const noon = Date.UTC(2026, 11, 1, 12);
-const firstTick = noon + hour + 5 * minute;
+const firstEnd = noon + hour;
+const firstTick = firstEnd + 5 * minute;
 const monday = Date.UTC(2026, 10, 30, 6);
 const webhook = "https://hooks.slack.test/services/test-speed";
 const botSecrets = { SLACK_BOT_TOKEN: "test-only-speed-bot-token", SLACK_ALERT_CHANNEL: "C123TEST" };
@@ -86,6 +87,14 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     seed(misses, at, { site, edge: "MISS" });
   }
 
+  function seedHalfHits(start: number, end: number, clients = 20) {
+    for (let i = 0; i < 60; i++) {
+      const at = start + (end - start) * i / 60;
+      const client = (i % clients).toString(16).padStart(16, "0");
+      seed(1, at, { client, edge: i % 2 === 0 ? "HIT" : "MISS" });
+    }
+  }
+
   const checkHour = (offset = 0) => runSpeedAlarms(env, firstTick + offset * hour);
 
   async function scheduled(at: number) {
@@ -145,49 +154,50 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     await runSpeedAlarms(env, nextMonday);
 
     const [alarm, report] = messages();
-    expect(alarm).toBe(`Speed ALARM · site-1.example (site-1) · article · p75 TTFB 950 ms · target ≤ 800 ms · 20 samples · ${label}`);
+    expect(alarm).toBe(`Speed ALARM · site-1.example (site-1) · article · p75 TTFB 950 ms · target ≤ 800 ms · 20 samples · ${label} · last 1 h`);
     expect(report?.split("\n", 1)[0]).toBe(
       `Weekly speed report · ${new Date(monday).toISOString()} to ${new Date(nextMonday).toISOString()} · ${label}`,
     );
   });
 
   it("posts one DATA GAP and one resumed ALARM per episode, then stays silent until RECOVERY", async () => {
+    // Leave a full window between observations so each gap has just 19 samples.
+    const checkDay = (offset: number) => checkHour(24 * offset);
     for (const [offset, count, lcp] of [
       [0, 20, 2800], [1, 20, 2900], [2, 19, 1400], [3, 20, 2700],
       [4, 19, 1400], [5, 20, 2750], [6, 20, 1500], [7, 20, 1400], [8, 20, 2600],
     ] as const) {
-      seed(count, noon + offset * hour, { page: "quote", lcp });
+      seed(count, noon + offset * day, { page: "quote", lcp });
     }
 
-    for (const offset of [0, 0, 1, 2, 2]) await checkHour(offset);
+    for (const offset of [0, 0, 1, 2, 2]) await checkDay(offset);
     const key = "speed:v1:state:site-1:quote:LCP";
     const beforeResume = [
       expect.stringMatching(/alarm.*quote.*2800/is),
       expect.stringContaining("Speed DATA GAP · site-1.example (site-1) · quote · LCP · 19 samples (minimum 20)"),
     ];
     expect(messages()).toEqual(beforeResume);
-    for (const offset of [3, 3]) await checkHour(offset);
+    for (const offset of [3, 3]) await checkDay(offset);
     const firstPosts = [...beforeResume,
-      `Speed ALARM · data resumed · site-1.example (site-1) · quote · p75 LCP 2700 ms · target ≤ 1500 ms · 20 samples · worker ${release}`,
+      `Speed ALARM · data resumed · site-1.example (site-1) · quote · p75 LCP 2700 ms · target ≤ 1500 ms · 20 samples · worker ${release} · last 1 h`,
     ];
     expect(messages()).toEqual(firstPosts);
-    expect(store.get(key)).toBe(`alarm ${noon + 4 * hour} resumed`);
-    // A late observation makes hour 2 healthy. Its delayed replay must not
-    // announce recovery after hour 3 already observed the sustained alarm.
-    seed(1, noon + 2 * hour, { page: "quote", lcp: 1400 });
-    await checkHour(2);
+    expect(store.get(key)).toBe(`alarm ${firstEnd + 3 * day} resumed`);
+    // A late observation makes day 2's check healthy after day 3 has already alarmed.
+    seed(1, noon + 2 * day, { page: "quote", lcp: 1400 });
+    await checkDay(2);
     expect(messages()).toEqual(firstPosts);
-    await checkHour(4);
+    await checkDay(4);
     expect(messages()).toEqual(firstPosts);
-    expect(store.get(key)).toBe(`nodata ${noon + 5 * hour} resumed`);
-    for (const offset of [4, 5, 5]) await checkHour(offset);
+    expect(store.get(key)).toBe(`nodata ${firstEnd + 4 * day} resumed`);
+    for (const offset of [4, 5, 5]) await checkDay(offset);
     expect(messages()).toEqual(firstPosts);
-    expect(store.get(key)).toBe(`alarm ${noon + 6 * hour} resumed`);
-    for (const offset of [6, 6, 7]) await checkHour(offset);
+    expect(store.get(key)).toBe(`alarm ${firstEnd + 5 * day} resumed`);
+    for (const offset of [6, 6, 7]) await checkDay(offset);
     const episode = [...firstPosts, expect.stringMatching(/recover.*quote.*1500/is)];
     expect(messages()).toEqual(episode);
-    expect(store.get(key)).toBe(`healthy ${noon + 7 * hour}`);
-    for (const offset of [8, 9, 9]) await checkHour(offset);
+    expect(store.get(key)).toBe(`healthy ${firstEnd + 6 * day}`);
+    for (const offset of [8, 9, 9]) await checkDay(offset);
     expect(messages()).toEqual([...episode,
       expect.stringMatching(/alarm.*quote.*2600/is),
       expect.stringMatching(/Speed DATA GAP.*quote.*0 samples/),
@@ -251,6 +261,22 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("selects each page and vital's window independently, including 25 quote LCP samples over 10 hours", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: firstTick });
+    for (let i = 0; i < 25; i++) {
+      seed(1, firstEnd - 10 * hour + i * 24 * minute, { page: "quote", lcp: 2200 });
+    }
+    seed(20, firstEnd - 5 * hour, { page: "quote", ttfb: 910 });
+    seed(20, noon, { page: "article", lcp: 1800 });
+
+    await scheduled(firstTick);
+    expect(messages()).toEqual([
+      expect.stringMatching(/Speed ALARM.*article.*p75 LCP 1800 ms.*20 samples.*last 1 h$/),
+      expect.stringMatching(/Speed ALARM.*quote.*p75 LCP 2200 ms.*25 samples.*last 24 h$/),
+      expect.stringMatching(/Speed ALARM.*quote.*p75 TTFB 910 ms.*20 samples.*last 6 h$/),
+    ]);
+  });
+
   it("ignores anonymous rows and caps repeated beacons before applying the 20-sample minimum", async () => {
     seed(30, noon, { client: "0000000000000001", inp: 120 });
     seed(30, noon, { client: null, inp: 120 });
@@ -280,14 +306,14 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
 
   it("reports a vanished page once, then recovers when a full hour meets the finish line", async () => {
     env.CF_VERSION_METADATA = { id: release, tag: "v5" };
-    seed(20, noon, { page: "category", lcp: 1600 });
+    seed(20, firstEnd - day, { page: "category", lcp: 1600 });
     seed(20, noon + 3 * hour, { page: "category", lcp: 1500 });
     for (const offset of [0, 1, 1, 2]) await checkHour(offset);
     const key = "speed:v1:state:site-1:category:LCP";
     expect(store.get(key)).toBe(`nodata ${noon + 2 * hour}`);
     expect(messages()).toEqual([
       expect.stringContaining("Speed ALARM"),
-      `Speed DATA GAP · site-1.example (site-1) · category · LCP · 0 samples (minimum 20) · release v5 · worker ${release}`,
+      `Speed DATA GAP · site-1.example (site-1) · category · LCP · 0 samples (minimum 20) · release v5 · worker ${release} · last 24 h`,
     ]);
     await checkHour(3);
     await checkHour(3);
@@ -328,7 +354,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     vi.setSystemTime(firstTick);
     await scheduled(firstTick);
     expect(messages()).toEqual([
-      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 0% · target ≥ 90% · 50 samples · worker ${release}`,
+      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 0% · target ≥ 90% · 50 samples · worker ${release} · last 1 h`,
     ]);
   });
 
@@ -351,14 +377,53 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(alarm).toMatch(/all pages/i);
 
     seedEdge("site-1", noon + 2 * hour, 0, 50);
-    seedEdge("site-1", noon + 4 * hour, 45, 5);
-    for (const offset of [1, 2, 3]) await checkHour(offset);
+    seedEdge("site-1", noon + day + 3 * hour, 45, 5);
+    for (const offset of [1, 2, 26]) await checkHour(offset);
     expect(messages()).toHaveLength(2);
     expect(messages()[1]).toContain("all pages · HIT · 0 samples (minimum 50)");
-    await checkHour(4);
-    await checkHour(4);
+    await checkHour(27);
+    await checkHour(27);
     expect(messages()).toHaveLength(3);
     expect(messages()[2]).toMatch(/recover.*HIT.*90%/is);
+  });
+
+  it.each([
+    { hours: 24, start: firstEnd - 20 * hour, end: firstEnd - 6 * hour },
+    { hours: 1, start: noon, end: firstEnd },
+    { hours: 6, start: firstEnd - 6 * hour, end: firstEnd },
+  ])("alarms on 50% HIT share in the shortest qualifying window (last $hours h)", async ({ hours, start, end }) => {
+    vi.useFakeTimers({ toFake: ["Date"], now: firstTick });
+    seedHalfHits(start, end);
+    await scheduled(firstTick);
+    expect(messages()).toEqual([
+      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 50% · target ≥ 90% · 60 samples · worker ${release} · last ${hours} h`,
+    ]);
+  });
+
+  it("logs the 24 h capped count when 60 edge samples come from only eight clients", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: firstTick });
+    const info = vi.spyOn(console, "info");
+    seedHalfHits(firstEnd - 20 * hour, firstEnd - 6 * hour, 8);
+    seedEdge("site-1", firstEnd - day - 1000, 0, 60);
+    seedEdge("site-1", firstEnd, 0, 60);
+    await scheduled(firstTick);
+    expect(send).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      "[speed-alarms] site-1.example (site-1) · edge HIT share insufficient traffic from sampled real visitors (24 samples) · last 24 h",
+    );
+  });
+
+  it("recovers from a 24 h HIT alarm as soon as the last hour qualifies and is healthy", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: firstTick });
+    seedHalfHits(firstEnd - 20 * hour, firstEnd - 6 * hour);
+    await scheduled(firstTick);
+    seedEdge("site-1", firstEnd, 60, 0);
+    vi.setSystemTime(firstTick + hour);
+    await scheduled(firstTick + hour);
+    expect(messages()).toEqual([
+      expect.stringMatching(/Speed ALARM.*edge HIT share 50%.*60 samples.*last 24 h$/),
+      expect.stringMatching(/Speed RECOVERY.*edge HIT share 100%.*60 samples.*last 1 h$/),
+    ]);
   });
 
   it("reads each client's earliest three known outcomes across page types and starts a new window at UTC midnight", async () => {
@@ -373,7 +438,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     }
     await runSpeedAlarms(env, midnight + 5 * minute);
     expect(messages()).toEqual([
-      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 66.667% · target ≥ 90% · 60 samples · worker ${release}`,
+      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 66.667% · target ≥ 90% · 60 samples · worker ${release} · last 1 h`,
     ]);
     await runSpeedAlarms(env, midnight + hour + 5 * minute);
     expect(messages()).toHaveLength(2);
@@ -485,6 +550,41 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
       expect.stringMatching(/site-1.*article.*LCP 3200/i),
       expect.stringMatching(/site-1.*article.*TTFB 920/i),
     ]));
+  });
+
+  it.each([
+    { failed: "HIT", queryPart: "edge IS NOT NULL", other: "LCP" },
+    { failed: "LCP", queryPart: "cohorts(phones)", other: "HIT" },
+  ] as const)("leaves $failed state alone on a failed window, checks the next batch and bounds reads", async ({ failed, queryPart, other }) => {
+    for (let n = 1; n <= 50; n++) {
+      const id = `tenant-${String(n).padStart(2, "0")}`;
+      addSite(db, id, id, "home");
+    }
+    const keys = { HIT: "speed:v1:state:site-1:all pages:HIT", LCP: "speed:v1:state:site-1:article:LCP" };
+    const previous = `alarm ${noon}`;
+    for (const key of Object.values(keys)) store.set(key, previous);
+    seed(20, noon, { site: "tenant-50", lcp: 2000 });
+    seedEdge("tenant-50", noon, 0, 50);
+
+    let matchingReads = 0;
+    const prepare = env.DB.prepare.bind(env.DB);
+    const sql = vi.spyOn(env.DB, "prepare").mockImplementation(query => {
+      if (query.includes(queryPart) && ++matchingReads === 2) throw new Error("window unavailable");
+      return prepare(query);
+    });
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await checkHour();
+
+    const reads = sql.mock.calls.filter(([query]) => query.includes("FROM vitals_samples") && !query.startsWith("DELETE"));
+    expect(reads).toHaveLength(12); // Six aggregate queries for each of the two batches.
+    expect(store.get(keys[failed])).toBe(previous);
+    expect(store.get(keys[other])).toBe(`nodata ${firstEnd}`);
+    expect(messages()).toEqual([
+      expect.stringContaining(` · ${other} · 0 samples (minimum `),
+      expect.stringMatching(/Speed ALARM.*tenant-50.*edge HIT share 0%.*last 1 h$/),
+      expect.stringMatching(/Speed ALARM.*tenant-50.*p75 LCP 2000 ms.*last 1 h$/),
+    ]);
   });
 
   it("does no monitoring I/O outside hourly checks and weekly retry slots", async () => {
