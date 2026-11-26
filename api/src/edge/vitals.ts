@@ -9,7 +9,7 @@ import type { WaitUntilContext } from "../wait-until-context";
 // CLS uses the largest shift session. INP groups event durations by interaction
 // and discards one slow interaction per 50 interactions before taking the worst.
 export const VITALS_BEACON = `<script data-vitals>(()=>{
-  if(Math.random()>=.2||!globalThis.navigator?.sendBeacon||!globalThis.performance)return;
+  if(!globalThis.navigator?.sendBeacon||!globalThis.performance)return;
   const d=document,p=performance,{min,max}=Math;
   const m={page_type:d.documentElement.dataset.pt},flush=[],times=new Map();
   const visible=d.visibilityState!=="hidden"||d.prerendering;

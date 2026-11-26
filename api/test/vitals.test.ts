@@ -450,19 +450,24 @@ describe("rendered vitals beacon", () => {
     expect(html).not.toContain("/v/vitals");
   });
 
-  it("matches the 2048 bytes of the complete inline script at 4e9ed81d", () => {
+  it("matches the 2029 bytes of the P5-W inline script that reports every page view", () => {
     const bytes = Buffer.byteLength(VITALS_BEACON);
     console.log(`Vitals beacon: ${bytes} bytes including script tags`);
-    expect(bytes).toBe(2048);
+    expect(bytes).toBe(2029);
     expect(createHash("sha256").update(VITALS_BEACON).digest("hex"))
-      .toBe("42eb6e01be6c0d1f62bb401da3d8f2674236ff1990e25a9f6a09ca5007deb91a");
+      .toBe("9fe490e518b3648a42d9700e23ebfb384bf6d7612582a1e27ac6e912fbafcb51");
   });
 });
 
 // Drive the emitted code with queued and delivered PerformanceObserver entries.
 // No browser, network, or wall-clock timing is needed.
 type Entry = { startTime?: number; value?: number; hadRecentInput?: boolean; interactionId?: number; duration?: number };
-function browser(random: number, types = ["event", "first-input", "largest-contentful-paint", "layout-shift"], visibilityState = "visible") {
+function browser(
+  random: number,
+  types = ["event", "first-input", "largest-contentful-paint", "layout-shift"],
+  visibilityState = "visible",
+  hasSendBeacon = true,
+) {
   const observers = new Map<string, Observer>();
   class Observer {
     static supportedEntryTypes = types;
@@ -491,13 +496,14 @@ function browser(random: number, types = ["event", "first-input", "largest-conte
     getEntriesByName: (name: string, type: string) => name === "first-contentful-paint" && type === "paint" ? [{ startTime: 205 }] : [],
   };
   const script = VITALS_BEACON.slice(VITALS_BEACON.indexOf(">") + 1, -"</script>".length);
-  runInNewContext(script, { document, performance, PerformanceObserver: Observer, navigator: { sendBeacon }, Blob, location: { origin },
+  runInNewContext(script, { document, performance, PerformanceObserver: Observer,
+    navigator: hasSendBeacon ? { sendBeacon } : {}, Blob, location: { origin },
     addEventListener: events.addEventListener.bind(events), Math: Object.assign(Object.create(Math), { random: () => random }) });
   return { observers, document, events, sendBeacon, navigation };
 }
 
-it("samples below 20%, flushes pending entries, and reports the five metrics once on the first hide", async () => {
-  const { observers, document, events, sendBeacon } = browser(0.19999);
+it.each([0.19999, 0.2, 0.99999])("flushes pending entries and reports the five metrics once on the first hide with Math.random() = %s", async random => {
+  const { observers, document, events, sendBeacon } = browser(random);
   observers.get("largest-contentful-paint")!.callback({ getEntries: () => [{ startTime: 300 }] });
   observers.get("largest-contentful-paint")!.pending.push({ startTime: 605 });
   observers.get("layout-shift")!.pending.push({ startTime: 200, value: 0.125 }, { startTime: 300, value: 0.25 },
@@ -517,11 +523,14 @@ it("samples below 20%, flushes pending entries, and reports the five metrics onc
   expect(JSON.parse(await json.text())).toEqual({ page_type: "quote", ttfb_ms: 120, fcp_ms: 200, lcp_ms: 600, inp_ms: 160, cls: 0.375 });
 });
 
-it("takes no observers or requests outside the sample and reports only supported metrics on pagehide", async () => {
-  const unsampled = browser(0.2);
-  unsampled.events.dispatchEvent(new Event("pagehide"));
-  expect(unsampled.observers.size).toBe(0);
-  expect(unsampled.sendBeacon).not.toHaveBeenCalled();
+it("skips observers and requests when sendBeacon is unavailable", () => {
+  const { observers, events, sendBeacon } = browser(0, undefined, "visible", false);
+  events.dispatchEvent(new Event("pagehide"));
+  expect(observers.size).toBe(0);
+  expect(sendBeacon).not.toHaveBeenCalled();
+});
+
+it("reports only supported metrics on pagehide", async () => {
   const partial = browser(0, []);
   partial.events.dispatchEvent(new Event("pagehide"));
   partial.document.visibilityState = "hidden";
