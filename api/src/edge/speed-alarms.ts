@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 
 const HOUR_MS = 3_600_000;
+const HOURLY_WINDOWS = [1, 6, 24] as const;
 const WEEK_HOURS = 7 * 24;
 const SITES_PER_BATCH = 50;
 const MIN_EDGE_SAMPLES = 50;
@@ -22,6 +23,8 @@ interface Reading {
   value: number | null; // Null when the window lacks enough eligible samples or clients.
   samples: number;
 }
+
+type HourlyReading = Reading & { windowHours: number };
 
 function offTarget(metric: Reading["metric"], value: number, target: number): boolean {
   return metric === "HIT" ? value < target : value > target;
@@ -173,15 +176,32 @@ function hitSummary(hit: Reading | null): string {
   return `edge HIT share ${value} (${hit.samples} samples)`;
 }
 
-async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Reading[] | null, end: number): Promise<void> {
-  const readings = hit ? [hit] : [];
+function hourlyReading(page_type: string, metric: Reading["metric"], windows: (Reading | undefined)[]): HourlyReading {
+  // Windows arrive shortest first. A data gap uses the full day's count, even
+  // when the 24 h query returned no row for this metric.
+  const first = windows.findIndex(row => row !== undefined && row.value !== null);
+  const index = first < 0 ? windows.length - 1 : first;
+  const row = windows[index] ?? { page_type, metric, value: null, samples: 0 };
+  return { ...row, windowHours: HOURLY_WINDOWS[index]! };
+}
+
+async function notifyChanges(
+  env: Env, site: Site, hits: (Reading | undefined)[] | null, rows: Reading[][] | null, end: number,
+): Promise<void> {
+  const readings: HourlyReading[] = [];
+  if (hits) {
+    const hit = hourlyReading("all pages", "HIT", hits);
+    if (hit.value === null) console.info(`[speed-alarms] ${siteLabel(site)} · ${hitSummary(hit)} · last ${hit.windowHours} h`);
+    readings.push(hit);
+  }
   // A successful query can return zero rows for a previously alarming page.
   // Check its existing state even then. A failed query leaves that state alone.
   if (rows) {
-    const byMetric = new Map(rows.map(row => [`${row.page_type}:${row.metric}`, row]));
+    const byWindow = rows.map(window => new Map(window.map(row => [`${row.page_type}:${row.metric}`, row])));
     for (const page_type of pageTypes) {
       for (const metric of vitals) {
-        readings.push(byMetric.get(`${page_type}:${metric}`) ?? { page_type, metric, value: null, samples: 0 });
+        const key = `${page_type}:${metric}`;
+        readings.push(hourlyReading(page_type, metric, byWindow.map(byMetric => byMetric.get(key))));
       }
     }
   }
@@ -194,7 +214,8 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
   const states = await env.CACHE.get(checks.map(check => check.key), "text");
   for (const { reading, target, key } of checks) {
     const [stored, previousHour, marker] = (states.get(key) ?? "").split(" ");
-    if (Number(previousHour) >= end) continue;
+    const lastChange = previousHour === undefined ? -Infinity : Number(previousHour);
+    if (lastChange >= end) continue;
     // Older "alarm <hour> gap" records last notified Slack of the data gap.
     const previous = marker === "gap" ? "nodata" : stored;
     const edge = reading.metric === "HIT";
@@ -207,6 +228,9 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
       headline = "Speed DATA GAP";
       detail = `${reading.metric} · ${reading.samples} samples (minimum ${edge ? MIN_EDGE_SAMPLES : MIN_VITAL_SAMPLES})`;
     } else {
+      // A fallback window can mix samples from both sides of the last state change.
+      const windowStart = end - reading.windowHours * HOUR_MS;
+      if (windowStart < lastChange) continue;
       const alarm = offTarget(reading.metric, reading.value, target);
       state = alarm ? "alarm" : "healthy";
       if (previous === state || (!alarm && previous !== "alarm" && previous !== "nodata")) continue;
@@ -217,7 +241,7 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
     }
     const resuming = previous === "nodata" && state === "alarm";
     if (resuming) headline += " · data resumed";
-    const text = [headline, siteLabel(site), reading.page_type, detail, workerLabel(env)].join(" · ");
+    const text = [headline, siteLabel(site), reading.page_type, detail, workerLabel(env), `last ${reading.windowHours} h`].join(" · ");
     const alreadyResumed = marker === "resumed" && state !== "healthy";
     if (alreadyResumed || await deliver(env, text)) {
       try {
@@ -318,7 +342,8 @@ export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<v
   const weekly = tick.getUTCDay() === 1 && hour >= 6 && hour < 12 && minute % 15 === 0;
   if (!weekly && minute !== 5) return;
   const end = weekly ? tick.setUTCHours(6, 0, 0, 0) : Math.floor(scheduledTime / HOUR_MS) * HOUR_MS;
-  const start = end - HOUR_MS * (weekly ? WEEK_HOURS : 1);
+  const weeklyStart = end - HOUR_MS * WEEK_HOURS;
+  const starts = weekly ? [weeklyStart] : HOURLY_WINDOWS.map(hours => end - HOUR_MS * hours);
 
   try {
     if (weekly) {
@@ -337,29 +362,28 @@ export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<v
     const sections: string[] = [];
     for (let i = 0; i < sites.length; i += SITES_PER_BATCH) {
       const batch = sites.slice(i, i + SITES_PER_BATCH);
-      const [hits, vitalsBySite] = await Promise.all([
-        readHitShares(env, batch, start, end).catch(() => {
+      const [hitWindows, vitalWindows] = await Promise.all([
+        Promise.all(starts.map(start => readHitShares(env, batch, start, end))).catch(() => {
           console.error("[speed-alarms] Edge HIT share unavailable", batch.map(site => site.id));
           return null;
         }),
-        readVitals(env, batch, start, end, weekly).catch(() => {
+        Promise.all(starts.map(start => readVitals(env, batch, start, end, weekly))).catch(() => {
           console.error("[speed-alarms] Vitals unavailable", batch.map(site => site.id));
           return null;
         }),
       ]);
       for (const site of batch) {
-        const hit = hits?.get(site.id) ?? null;
-        const rows = vitalsBySite ? vitalsBySite.get(site.id) ?? [] : null;
+        const hits = hitWindows?.map(window => window.get(site.id)) ?? null;
+        const rows = vitalWindows?.map(window => window.get(site.id) ?? []) ?? null;
         if (weekly) {
-          sections.push(siteTable(site, hit, rows));
+          sections.push(siteTable(site, hits?.[0] ?? null, rows?.[0] ?? null));
         } else {
-          if (hit && hit.value === null) console.info(`[speed-alarms] ${siteLabel(site)} · ${hitSummary(hit)}`);
-          await notifyChanges(env, site, hit, rows, end).catch(() => console.error("[speed-alarms] Alarm state unavailable", site.id));
+          await notifyChanges(env, site, hits, rows, end).catch(() => console.error("[speed-alarms] Alarm state unavailable", site.id));
         }
       }
     }
     if (weekly) {
-      if (await deliver(env, weeklyReport(env, start, end, sections))) await env.CACHE.put(WEEKLY_REPORT_KEY, String(end));
+      if (await deliver(env, weeklyReport(env, weeklyStart, end, sections))) await env.CACHE.put(WEEKLY_REPORT_KEY, String(end));
     }
   } catch {
     console.error("[speed-alarms] Scheduled speed check failed");

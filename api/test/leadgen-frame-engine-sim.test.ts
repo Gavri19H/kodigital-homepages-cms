@@ -96,6 +96,14 @@ class FakeElement {
     return this.attrs.has(name);
   }
 
+  get isConnected(): boolean {
+    return this.closest('[id="lg-funnel-root"]') !== null;
+  }
+
+  get tagName(): string {
+    return this.tag.toUpperCase();
+  }
+
   appendChild<T extends FakeElement>(child: T): T {
     child.parentElement = this;
     this.children.push(child);
@@ -149,7 +157,7 @@ class FakeElement {
     for (const fn of this.listeners.get(type) ?? []) fn({ target });
   }
 
-  focus(): void {
+  focus(_options?: FocusOptions): void {
     this.focusedCount += 1;
   }
 }
@@ -435,6 +443,7 @@ function buildFrameDom(
 interface SimHarness extends FrameDom {
   win: Record<string, unknown>;
   doc: FakeDocument;
+  runFrame(): void;
   engineApi: () => {
     getState: () => { section_index: number; back_stack: number[] };
   };
@@ -460,6 +469,8 @@ async function bootFrameEngine(opts: {
     ...(opts.barProgressMount !== undefined ? { barProgressMount: opts.barProgressMount } : {}),
   });
   stubBrowserGlobals(win, doc);
+  const frameCallbacks: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frameCallbacks.push(callback));
   if (opts.fetchMock !== undefined) {
     const mock = opts.fetchMock;
     vi.stubGlobal("fetch", async (input: RequestInfo | URL): Promise<Response> => {
@@ -475,6 +486,7 @@ async function bootFrameEngine(opts: {
     win,
     doc,
     ...dom,
+    runFrame: () => frameCallbacks.splice(0).forEach(callback => callback(0)),
     engineApi: () =>
       win["__LG_ENGINE__"] as {
         getState: () => { section_index: number; back_stack: number[] };
@@ -485,6 +497,82 @@ async function bootFrameEngine(opts: {
 function activeDotIndexes(dots: readonly FakeElement[]): number[] {
   return dots.flatMap((dot, i) => (dot.getAttribute("data-active") === "true" ? [i] : []));
 }
+
+describe("focus after a step tap", () => {
+  async function prepareSecondSection(input?: FakeElement) {
+    vi.useFakeTimers();
+    const h = await bootFrameEngine({ preview: true, historyFallback: "false" });
+    const section = h.continues[1]!.parentElement!;
+    const choice = section.appendChild(new FakeElement("button", { "data-lg-choice": "yes" }));
+    const focus = vi.spyOn(input ? section.appendChild(input) : choice, "focus");
+    const tap = () => {
+      h.root.dispatch("click", h.continues[0]!);
+      expect(h.engineApi().getState().section_index).toBe(1);
+    };
+    return { h, section, choice, focus, tap };
+  }
+
+  function stepInput(type: string): FakeInputElement {
+    const input = new FakeInputElement({ "data-lg-input": "" });
+    input.type = type;
+    return input;
+  }
+
+  it.each(["text", "email", "tel", "number", "search", "url", "password", "textarea"])(
+    "focuses the new %s control inside the tap that reveals it",
+    async type => {
+      const input = type === "textarea" ? new FakeElement("textarea", { "data-lg-input": "" }) : stepInput(type);
+      const { h, choice, focus, tap } = await prepareSecondSection(input);
+      tap();
+      expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+      h.runFrame();
+      vi.advanceTimersByTime(0);
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(choice.focusedCount).toBe(0);
+    },
+  );
+
+  it.each(["choice", "range"])("focuses the new %s after the frame and timer", async type => {
+    const { h, choice, focus, tap } = await prepareSecondSection(type === "range" ? stepInput(type) : undefined);
+    tap();
+    expect(focus).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(focus).not.toHaveBeenCalled();
+    h.runFrame();
+    expect(focus).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    expect(choice.focusedCount).toBe(type === "choice" ? 1 : 0);
+  });
+
+  it("focuses only the current section when two taps arrive before the frame", async () => {
+    const { h, section, focus, tap } = await prepareSecondSection();
+    tap();
+    const third = h.continues[2]!.parentElement!;
+    const choice = third.appendChild(new FakeElement("button", { "data-lg-choice": "yes" }));
+    h.root.dispatch("click", h.continues[1]!);
+    expect(section.hasAttribute("hidden")).toBe(true);
+    h.runFrame();
+    vi.advanceTimersByTime(0);
+    expect(focus).not.toHaveBeenCalled();
+    expect(choice.focusedCount).toBe(1);
+  });
+
+  it.each(["detached", "auction pending"])("skips a section that becomes %s before the timer", async state => {
+    const { h, section, focus, tap } = await prepareSecondSection();
+    tap();
+    h.runFrame();
+    if (state === "detached") {
+      const parent = section.parentElement!;
+      parent.children.splice(parent.children.indexOf(section), 1);
+      section.parentElement = null;
+    } else {
+      h.root.setAttribute("data-lg-auction", "pending");
+    }
+    vi.advanceTimersByTime(0);
+    expect(focus).not.toHaveBeenCalled();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // (a) frame-level dots mount — the dots ADVANCE with the engine

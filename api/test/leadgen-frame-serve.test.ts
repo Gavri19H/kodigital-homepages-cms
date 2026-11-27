@@ -435,7 +435,7 @@ describeDb("A-exit: a frame-configured funnel serves a COMPOSED /lg page (13 §1
     expect(s2At).toBeGreaterThan(s1At);
     expect(mountCloseAt).toBeGreaterThan(s2At);
     // Banners mount still inside the mount, after the sections.
-    const bannersAt = html.indexOf("data-lg-banners");
+    const bannersAt = html.indexOf('<div class="lg-banners" data-lg-banners');
     expect(bannersAt).toBeGreaterThan(s2At);
     expect(bannersAt).toBeLessThan(mountCloseAt);
 

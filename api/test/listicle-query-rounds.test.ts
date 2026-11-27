@@ -9,8 +9,8 @@ const url = "https://guides.example/guide?utm_source=paper";
 // Stage 4 baseline at 66416747 under TZ=UTC. The Stage 2 byte-identity proof is on perf/p2-fast-builds.
 // P5-D adds the shared vitals beacon and page type to those bodies, also measured under TZ=UTC.
 // At 7dfb84fc the listicle reads alone took 11 rounds for the inner shell and 13 for the visitor.
-const innerDigest = "47bc0aec69416ce71355c28a25df28f1c66a35d84a92a07c72f7c3af63fca1dc";
-const visitorDigest = "d179d797a120f36dcb35d015978f3ab871dd2643b08c3e01846182233df28c40";
+const innerDigest = "842201502f714df64627197d52767d483077b734156f92192948d1641e85ce17";
+const visitorDigest = "0bc813c17ac34d29db3aa33500e37d3921c97a4ef1e5ea86b20087187b941c5a";
 const hostRead = expect.stringContaining("FROM domains");
 const redirectRead = expect.stringContaining("FROM redirects");
 const versionRead = expect.stringContaining("FROM listicle_articles a");

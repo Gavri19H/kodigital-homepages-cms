@@ -254,7 +254,7 @@ export function listicleCandidateKey(
 // returning visitors receive the new markup and its matching engine.
 // v17: roll the immutable URL for the engine update that restores returning
 // visitors before first paint. Staging already cached the original v16 bytes.
-export const LEADGEN_TEMPLATE_VERSION = 17 as const;
+export const LEADGEN_TEMPLATE_VERSION = 19 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

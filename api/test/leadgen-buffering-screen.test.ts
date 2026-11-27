@@ -153,6 +153,16 @@ describe("the pending state is CSS, driven by data-lg-auction", () => {
     expect(CSS).toContain(`${SCOPE}[data-lg-auction="pending"] .lg-buffering{display:flex}`);
   });
 
+  it("reserves the small viewport through buffering, results, no match and the auction error notice", () => {
+    const endScreens = [
+      `${SCOPE}[data-lg-auction="pending"] .lg-buffering`,
+      `${SCOPE}[data-lg-complete="1"] [data-lg-banners]`,
+      `${SCOPE}[data-lg-auction="unfilled"] .lg-no-match`,
+      `${SCOPE}[data-lg-auction="error"] .lg-runtime-notice`,
+    ];
+    expect(blocks(endScreens.join(","))).toEqual(["min-height:100vh;min-height:100svh"]);
+  });
+
   it("the reveal rule OUTRANKS the terminal [hidden] guard (that is the point)", () => {
     // The guard is (0,2,0): scope attr + [hidden]. The reveal is (0,3,0): scope
     // attr + the state attr + the class. Higher specificity wins regardless of

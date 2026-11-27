@@ -22,6 +22,9 @@ export const NOTICE_CLASS = "lg-runtime-notice";
 // The answer-producing node selector — seven call sites; one constant keeps the
 // bundle inside its §3.1 byte budget.
 export const QUESTION_SEL = "[data-lg-question]";
+export const SECTION_SEL = "[data-lg-section]";
+export const INPUT_SEL = "[data-lg-input]";
+export const CHOICE_SEL = "[data-lg-choice]";
 
 // The `hidden`-attribute toggle every visibility function below performs —
 // one shared helper, ~6 call sites (byte trim; behavior-identical:
@@ -33,7 +36,7 @@ export function toggleHidden(el: Element, visible: boolean): void {
 }
 
 export function sectionElements(root: Element): HTMLElement[] {
-  return Array.from(root.querySelectorAll("[data-lg-section]"));
+  return Array.from(root.querySelectorAll(SECTION_SEL));
 }
 
 export function sectionElementAt(root: Element, index: number): HTMLElement | null {
@@ -95,7 +98,7 @@ export function applyComponentVisibility(
 // one the SSR role scheme actually calls for.
 export function applySelectionClasses(questionEl: Element, value: unknown): void {
   const values = Array.isArray(value) ? value.map((v) => String(v)) : [String(value)];
-  questionEl.querySelectorAll("[data-lg-choice]").forEach((el) => {
+  questionEl.querySelectorAll(CHOICE_SEL).forEach((el) => {
     const isOn = values.indexOf(el.getAttribute("data-lg-choice") || "") !== -1;
     el.classList[isOn ? "add" : "remove"](SELECTED_CLASS);
     el.setAttribute("aria-checked", isOn ? "true" : "false");
@@ -263,7 +266,7 @@ export function setFieldError(
     // (the wrapper shapes: address subfields, range, textarea boxes).
     const input = fieldEl.hasAttribute("data-lg-input")
       ? fieldEl
-      : fieldEl.querySelector("[data-lg-input]");
+      : fieldEl.querySelector(INPUT_SEL);
     if (input !== null) {
       if (message !== null) input.setAttribute("aria-invalid", "true");
       else input.removeAttribute("aria-invalid");
@@ -363,17 +366,29 @@ export function hideRuntimeNotice(container: Element): void {
   if (notice !== null) toggleHidden(notice, false);
 }
 
-// Container-aware focus (§3.2 render row): focus the first interactive
-// element INSIDE the newly-shown section without scroll-jacking.
-export function focusSection(sectionEl: Element): void {
-  const target =
-    sectionEl.querySelector("[data-lg-input]") || sectionEl.querySelector("[data-lg-choice]");
-  if (target !== null && target instanceof HTMLElement) {
+function focusControl(target: Element | null): void {
+  // A second tap can replace the section, and a pending auction hides it via CSS.
+  if (target instanceof HTMLElement && target.isConnected && !target.closest('[hidden],[data-lg-auction="pending"]')) {
     try {
       target.focus({ preventScroll: true });
     } catch {
       /* focus best-effort */
     }
+  }
+}
+
+// iOS needs focus inside the tap to open a keyboard. Other controls can wait
+// for paint. Resolve the deferred target again in case the section changed.
+export function focusSection(sectionEl: Element): void {
+  const firstControl = () => sectionEl.querySelector(INPUT_SEL) || sectionEl.querySelector(CHOICE_SEL);
+  const target = firstControl();
+  if (
+    target?.tagName === "TEXTAREA" ||
+    (target instanceof HTMLInputElement && /^(text|email|tel|number|search|url|password)$/.test(target.type))
+  ) {
+    focusControl(target);
+  } else {
+    requestAnimationFrame(() => setTimeout(() => focusControl(firstControl()), 0));
   }
 }
 
